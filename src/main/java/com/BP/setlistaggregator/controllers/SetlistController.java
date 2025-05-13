@@ -11,7 +11,7 @@ import com.BP.setlistaggregator.internalDTO.SongsRanked;
 
 //class to handle requests involving setlist data, stats
 //allow React frontend on port 3000 to make requests to Spring Boot backend on 8080
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "https://setlist-aggregator-frontend.vercel.app")
 //annotation to tell Spring this is a REST API controller that returns JSON
 @RestController
 //base URL for endpoints in class
