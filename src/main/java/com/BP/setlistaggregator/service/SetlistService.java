@@ -513,31 +513,24 @@ public class SetlistService {
     //helper method to return top N ranked songs based on play counts
     //ascending = true, lowest values first, used with getRarestSongs
     //descending = false, highest values first, used with getTopEncoreSongs
-    private List<SongsRanked> getTopRankedSongs(Map<String, Integer> map, int n, boolean ascending) {
+    private List<SongsRanked> getTopRankedSongs(Map<String, Integer> map, int maxResults, boolean ascending) {
         //convert map entries to list for sorting
         List<Map.Entry<String, Integer>> entries = new ArrayList<>(map.entrySet());
 
-        //selection sort by value
-        for (int i = 0; i < entries.size(); i++) {
-            int selected = i;
-            for (int j = i + 1; j < entries.size(); j++) {
-                int compare = entries.get(j).getValue() - entries.get(selected).getValue();
-                if ((ascending && compare < 0) || (!ascending && compare > 0)) {
-                    selected = j;
-                }
-            }
-            //swap the selected element with the current ith element
-            Map.Entry<String, Integer> temp = entries.get(i);
-            entries.set(i, entries.get(selected));
-            entries.set(selected, temp);
-        }
+        //replaced manual selection sort with built sort for performance
+        entries.sort((e1, e2) -> ascending
+                ? Integer.compare(e1.getValue(), e2.getValue())
+                : Integer.compare(e2.getValue(), e1.getValue()));
+
+        entries = entries.subList(0, Math.min(maxResults, entries.size()));
+
         //log sorting direction
-        System.out.println("Sorting top " + n + " keys by " + (ascending ? "lowest" : "highest") + " values");
+        System.out.println("Sorting top " + maxResults + " keys by " + (ascending ? "lowest" : "highest") + " values");
 
         //convert to ranked DTOs of songs instead of just titles so we can return stats
         List <SongsRanked> topSongs = new ArrayList<>();
 
-        for (int i = 0; i < entries.size() && i < n; i++) {
+        for (int i = 0; i < entries.size() && i < maxResults; i++) {
             Map.Entry<String, Integer> entry = entries.get(i);
             //add 1 to i so first song is ranked 1 and not 0
             //create new object of DTO and add it to list
