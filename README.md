@@ -33,3 +33,4 @@ This is the backend service for the Setlist Aggregator web app. It provides a RE
 Set your Setlist.fm API key as an environment variable:
 ```bash
 export SFM_API_KEY=your-api-key-here
+# Force rebuild
