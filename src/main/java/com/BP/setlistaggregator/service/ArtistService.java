@@ -31,27 +31,33 @@ public class ArtistService {
         System.out.println("Looking up or creating artist with name: " + artistName);
 
         //try to find in db
-        Artist artist = artistRepository.findByNameIgnoreCase(artistName).orElse(null);
+        Optional<Artist> optionalArtist = artistRepository.findByNameIgnoreCase(artistName);
 
-        //if not found, create and save a new artist
-        if (artist == null) {
-            artist = new Artist();
-            artist.setName(artistName);
-            artist = artistRepository.save(artist);
-
-            //log creation
-            System.out.println("Created new artist entry for: " + artistName);
+        //return existing artist if found
+        if (optionalArtist.isPresent()) {
+            Artist existingArtist = optionalArtist.get();
+            //debug refetching issue
+            System.out.println("Found existing artist: " + existingArtist.getName() + " | fullyFetched: " + existingArtist.isFullyFetched() + " | lastFetchedDate: " + existingArtist.getLastFetchedDate());
+            return existingArtist;
         }
 
-        //return the artist (new or existing)
-        return artist;
+        //create new artist if not found in db
+        Artist newArtist = new Artist();
+        newArtist.setName(artistName);
+        newArtist.setFullyFetched(false);
+        newArtist.setLastFetchedDate(null);
+        //log creation
+        System.out.println("Created new artist entry for: " + artistName);
+        return artistRepository.save(newArtist);
     }
 
     public Optional<Artist> findByName(String name) {
 
-        return artistRepository.findByNameIgnoreCase(name);
-
+        Optional<Artist> artistNameResult = artistRepository.findByNameIgnoreCase(name);
+        System.out.println("findByName called for: " + name + " | found: " + artistNameResult.isPresent());
+        return artistNameResult;
     }
+
     //helper method to search MusicBrainz for artist MBID using the String we have
     public String resolveMBIDfromArtistNameString(String artistName) {
         try {

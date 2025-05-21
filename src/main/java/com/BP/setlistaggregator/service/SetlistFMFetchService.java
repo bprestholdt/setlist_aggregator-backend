@@ -60,7 +60,7 @@ public class SetlistFMFetchService {
                     //block request until full data received
                     .block();
 
-            System.out.println("⏱ Page " + page + " fetched in " + (System.currentTimeMillis() - start) + " ms");
+            System.out.println("Page " + page + " fetched in " + (System.currentTimeMillis() - start) + " ms");
 
             return response;
         }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import java.util.List;
 import com.BP.setlistaggregator.model.Setlist;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.time.LocalDate;
 
 //marks class as JPA entity, enabling spring boot to map it to a table in PostgreSQL database
 //creates "artist" class in database
@@ -19,7 +20,13 @@ public class Artist {
     //musicbrainz id needed for matching with setlist.fm api
     private String mbid;
     //whether we've already fetched all available setlists from the API for this artist
+    @Column(name = "fully_fetched")
     private boolean fullyFetched = false;
+
+    //field to track latest fetch- so we can only fetch setlists we don't have once we've fetched all for an artist
+    @Column(name = "last_fetched_date")
+    private LocalDate lastFetchedDate;
+
 
     //one artist can have many setlists
     @OneToMany(mappedBy = "artist", cascade = CascadeType.ALL)
@@ -72,12 +79,21 @@ public class Artist {
 
     }
     public boolean isFullyFetched() {
+
         return fullyFetched;
     }
 
     public void setFullyFetched(boolean fullyFetched) {
         this.fullyFetched = fullyFetched;
     }
+    public LocalDate getLastFetchedDate() {
+        return lastFetchedDate;
+    }
+
+    public void setLastFetchedDate(LocalDate lastFetchedDate) {
+        this.lastFetchedDate = lastFetchedDate;
+    }
+
 
 
 }

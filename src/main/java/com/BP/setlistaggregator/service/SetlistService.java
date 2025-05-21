@@ -57,6 +57,8 @@ public class SetlistService {
         //turn artist name into Artist object thats db entity (keeping track of if we have all their setlists)
         Artist artistObj = artistService.findOrCreateArtist(artist);
 
+        System.out.println("fullyFetched for " + artistObj.getName() + ": " + artistObj.isFullyFetched());
+
         //query database to see if artist already there, sort by most recent
         List<Setlist> existingSetlists = getOrderedSetlistsfromDB(artistObj.getName());
 
@@ -65,9 +67,16 @@ public class SetlistService {
 
         //fetch from API if we have less data for artist than is requested
         if (shouldFetchFromAPI(existingSetlists, maxSetlists, artistObj)) {
-            //log that we're fetching more data from the API for an artist that already existed in db
-            System.out.println("Fetching more data from Setlist.fm API for: " + artist);
-            fetchFromSetlistFm(artistObj.getName(), maxSetlists);
+            if (fetchAll && artistObj.isFullyFetched()) {
+                //already fetched historical artist setlists so just check for new ones after last fetched date
+                System.out.println("Already fetched full history for " + artist + ". Checking for new concerts.");
+                fetchRecentSetlists(artistObj);
+            }
+            else {
+                //either not fully fetched, or maxSetlists is bigger than what we have- fetch from SEtlist fm.
+                System.out.println("Fetching more data from Setlist.fm API for: " + artist);
+                fetchFromSetlistFm(artistObj.getName(), maxSetlists);
+            }
 
             //re-query db to get latest results
             existingSetlists = getOrderedSetlistsfromDB(artist);
@@ -86,10 +95,13 @@ public class SetlistService {
         if (existingSetlists.isEmpty()) {
             return true;
         }
-        // fetch only if we haven’t fetched all yet
+        //fetch if user wants all setlists
         if (maxSetlists == -1) {
-            return !artist.isFullyFetched();
+        //only fetch if artist is not marked as fully fetched
+        //OR if lastFetchedDate is missing-> we cant know if theres new ones
+            return !artist.isFullyFetched() || artist.getLastFetchedDate() == null;
         }
+        //for ranges like 20 or 100-> fetch only if  we dont have enough yet
         return existingSetlists.size() < maxSetlists;
     }
     //helper method for duplicate logic in getArtistSetlists
@@ -104,21 +116,41 @@ public class SetlistService {
         //fetch all setlists if -1
         boolean fetchAll = maxSetlists == -1;
 
-
         System.out.println("Calling findOrCreateArtist with input: " + artistName);
 
         //check if artist exists in local DB already using helper method
         Artist artist = artistService.findOrCreateArtist(artistName);
+
+        //keep track of artist's last fetched date
+        LocalDate newestFetchedDate = artist.getLastFetchedDate();
+
         System.out.println("ArtistName input: " + artistName);
 
-        //resolve MBID from artist so we get exact results
-        String mbid = artistService.resolveMBIDfromArtistNameString(artistName);
-        System.out.println("Resolved MBID: " + mbid);
+        //resolve MBID or get from DB so we get exact results
+        String mbid = artist.getMbid();
+        if (mbid == null || mbid.isEmpty()) {
+            //only resolve if dont already have it saved
+            mbid = artistService.resolveMBIDfromArtistNameString(artistName);
+            artist.setMbid(mbid);
+            System.out.println("Resolved MBID: " + mbid);
+        }
 
         if (mbid == null) {
             System.out.println("Could not resolve MBID for artist: " + artistName);
             return Collections.emptyList();
         }
+
+        //check if artist has already been fully fetched from API to avoid duplicate API calls
+        //also check for any new concerts using last fetched date if already fetched all
+        if (maxSetlists == -1 && artist.isFullyFetched()) {
+            System.out.println("Artist " + artistName + " already has full historical setlists in DB.");
+            System.out.println("Checking for any new concerts after last fetch date: " + artist.getLastFetchedDate());
+
+            //always attempt to fetch newer concerts in case any were added after last fetch
+            fetchRecentSetlists(artist);
+            return getOrderedSetlistsfromDB(artistName);
+        }
+
 
         //list to hold all the setlists as we paginate
         List<Setlist> allFetched = new ArrayList<>();
@@ -139,7 +171,7 @@ public class SetlistService {
 
             //extract data from page
             List<ApiSetlist> apiPageResults = fetchPageOrNull(mbid, page);
-            if (apiPageResults == null) {
+            if (apiPageResults == null || apiPageResults.isEmpty()) {
                 break;
             }
 
@@ -167,6 +199,7 @@ public class SetlistService {
                     //we've fetched all setlists for artist already
                     artist.setFullyFetched(true);
                     artistService.saveArtist(artist);
+                    System.out.println("Saved artist fullyFetched = " + artist.isFullyFetched());
                     System.out.println("Too many duplicate pages in a row — stopping fetch.");
                     break;
                 } else {
@@ -183,6 +216,12 @@ public class SetlistService {
             setlistRepository.saveAll(newSetlists);
             //add new fetched setlists to full collection so we can track progress
             allFetched.addAll(newSetlists);
+            //update newest fetched date if necessary
+            for (Setlist setlist : newSetlists) {
+                if (setlist.getDate() != null && (newestFetchedDate == null || setlist.getDate().isAfter(newestFetchedDate))) {
+                    newestFetchedDate = setlist.getDate();
+                }
+            }
             //move to next page if save succeeds
             page++;
 
@@ -190,6 +229,21 @@ public class SetlistService {
             if (gottaThrottle(fetchAll, maxSetlists, page)) {
                 throttleTime();
             }
+
+            //catch cases where API ends with null or nothing, ie last page is empty
+            if (fetchAll && allFetched.size() > 0 && !artist.isFullyFetched()) {
+                artist.setFullyFetched(true);
+                artistService.saveArtist(artist);
+                System.out.println("Marked artist as fully fetched after exhausting API pages.");
+            }
+        }
+
+        //persist updated fetch date to DB
+        if (newestFetchedDate != null && (
+            artist.getLastFetchedDate() == null || newestFetchedDate.isAfter(artist.getLastFetchedDate()))) {
+            artist.setLastFetchedDate(newestFetchedDate);
+            artistService.saveArtist(artist);
+            System.out.println("Updated artist lastFetchedDate to: " + newestFetchedDate);
         }
 
         //logging after loop to ensure returning correct data
@@ -201,7 +255,73 @@ public class SetlistService {
         return limitResults(allFetched, fetchAll, maxSetlists);
     }
 
-        //fetchfromsetlistfm helper methods to modularize code
+    //modified fetch to return setlists newer than our last one by this artist using last fetched date
+    private void fetchRecentSetlists(Artist artist) {
+        String mbid = artist.getMbid();
+
+        //if no mbid, stop fetch
+        if (mbid == null || mbid.isEmpty()) {
+            System.out.println("No MBID set for artist: " + artist.getName() + ". Cannot fetch recent setlists.");
+            return;
+        }
+
+        int page = 1;
+        boolean done = false;
+        //track newest date found
+        LocalDate newestFetchedDate= artist.getLastFetchedDate();
+
+        while (!done) {
+            List<ApiSetlist> pageResults = fetchPageOrNull(mbid, page);
+            if (pageResults == null || pageResults.isEmpty()) {
+                break;
+            }
+            //list to hold only new setlists fetched that aren't already in db
+            List<Setlist> newSetlists = new ArrayList<>();
+
+            for (ApiSetlist apiSetlist : pageResults) {
+                try {
+                    LocalDate date = LocalDate.parse(apiSetlist.getEventDate(), DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+
+                    //stop if already have setlists newer than this
+                    //(sometimes setlistFM returns them out of order)
+                    if (newestFetchedDate != null && (date.isBefore(newestFetchedDate) || date.equals(newestFetchedDate))) {
+                        done = true;
+                        break;
+                    }
+                    if (isDuplicateSetlist(apiSetlist, artist)) {
+                        continue;
+                    }
+
+                    Setlist entity = setlistFetcher.mapApiSetlistToEntity(apiSetlist, artist);
+                    if (entity != null) {
+                        newSetlists.add(entity);
+                        if (newestFetchedDate == null || date.isAfter(newestFetchedDate)) {
+                            newestFetchedDate = date;
+                        }
+                    }
+                } catch (Exception e) {
+                        System.out.println("Failed to parse or map recent setlist: " + e.getMessage());
+                    }
+                }
+                //save new recent setlists to DB
+                if (!newSetlists.isEmpty()) {
+                    setlistRepository.saveAll(newSetlists);
+                }
+                page++;
+
+                if (gottaThrottle(true, -1, page)) {
+                    throttleTime();
+                }
+            }
+            //save updated lastFetchedDate in artist entity
+            if (newestFetchedDate != null && (artist.getLastFetchedDate() == null || newestFetchedDate.isAfter(artist.getLastFetchedDate()))) {
+                artist.setLastFetchedDate(newestFetchedDate);
+                artistService.saveArtist(artist);
+                System.out.println("Updated lastFetchedDate to: " + newestFetchedDate);
+            }
+        }
+
+    //fetchfromsetlistfm helper methods to modularize code
     //helper method to streamline exit logic
     private boolean shouldExitEarly(boolean fetchAll, int maxSetlists, int fetchedSoFar, int page, int dupStreak) {
         //return true if we need to exit fetch loop
