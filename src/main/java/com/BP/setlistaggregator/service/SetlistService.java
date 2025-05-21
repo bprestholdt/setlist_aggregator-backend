@@ -103,8 +103,22 @@ public class SetlistService {
 
         //fetch all setlists if -1
         boolean fetchAll = maxSetlists == -1;
+
+
+        System.out.println("Calling findOrCreateArtist with input: " + artistName);
+
         //check if artist exists in local DB already using helper method
         Artist artist = artistService.findOrCreateArtist(artistName);
+        System.out.println("ArtistName input: " + artistName);
+
+        //resolve MBID from artist so we get exact results
+        String mbid = artistService.resolveMBIDfromArtistNameString(artistName);
+        System.out.println("Resolved MBID: " + mbid);
+
+        if (mbid == null) {
+            System.out.println("Could not resolve MBID for artist: " + artistName);
+            return Collections.emptyList();
+        }
 
         //list to hold all the setlists as we paginate
         List<Setlist> allFetched = new ArrayList<>();
@@ -120,8 +134,11 @@ public class SetlistService {
             if (shouldExitEarly(fetchAll, maxSetlists, allFetched.size(), page, duplicatePageStreak)) {
                 break;
             }
+
+            System.out.println("Calling Setlist.fm with MBID: " + mbid);
+
             //extract data from page
-            List<ApiSetlist> apiPageResults = fetchPageOrNull(artistName, page);
+            List<ApiSetlist> apiPageResults = fetchPageOrNull(mbid, page);
             if (apiPageResults == null) {
                 break;
             }
@@ -149,7 +166,7 @@ public class SetlistService {
                 if (duplicatePageStreak >= maxDuplicatePages) {
                     //we've fetched all setlists for artist already
                     artist.setFullyFetched(true);
-                    artistService.save(artist);
+                    artistService.saveArtist(artist);
                     System.out.println("Too many duplicate pages in a row — stopping fetch.");
                     break;
                 } else {
@@ -202,15 +219,15 @@ public class SetlistService {
         return false;
     }
     //helper method to fetch one page from setlist.fm api
-    private List<ApiSetlist> fetchPageOrNull(String artistName, int page) {
+    private List<ApiSetlist> fetchPageOrNull(String mbid, int page) {
         //logging to confirm pagination works
-        System.out.println("Fetching page " + page + " of setlists for " + artistName);
+        System.out.println("Fetching page " + page + " of setlists for MBID " + mbid);
         //send GET request to Setlist.fm API at https://api.setlist.fm/rest/1.0/search/setlists?artistName= "user artist"
         //call fetch service method to fetch one page from response and wrap in dto object
-        SetlistResponseWrapper response = setlistFetcher.fetchSetlistPage(artistName, page, PAGE_SIZE);
+        SetlistResponseWrapper response = setlistFetcher.fetchSetlistPage(mbid, page, PAGE_SIZE);
         //return empty list if no data in response or if setlist array is null
         if (response == null || response.getSetlist() == null || response.getSetlist().isEmpty())  {
-            System.out.println("issue- not backend, API returned no setlist data for page " + page + " — possible rate limit hit, artist typo, or no concerts found.");
+            System.out.println("issue- not backend, API returned no setlist data for page " + page + " — possibly no concerts found.");
             return null;
         }
         System.out.println("API returned setlists: " + response.getSetlist().size());

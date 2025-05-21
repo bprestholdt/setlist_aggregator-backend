@@ -35,6 +35,7 @@ public class ArtistController {
         //call repo to retuen all artists
         return artistService.getAllArtists();
     }
+
     //POST request to save new artist to our database
     //accepts Artist object as JSON in request body then saves it to db
     @PostMapping
@@ -42,9 +43,11 @@ public class ArtistController {
         //save received artist object into our database using service method
         return artistService.findOrCreateArtist(artist.getName());
     }
+
     //GET endpoint for single artist queries
     @GetMapping("/{name}")
     public Artist getArtistByName(@PathVariable String name) {
+
         return artistService.findByName(name).orElse(null);
     }
 
@@ -55,5 +58,31 @@ public class ArtistController {
         //use service layer to look up artist by mbid
         return artistService.findByMbid(mbid).orElse(null);
     }
+
+    //resolve a user inputted artist name String to their official MBID using service method
+    //ex: GET /api/artists/resolve?name=radiohead
+    @GetMapping("/resolve")
+    public HashMap<String, String> resolveArtistNametoMBID(@RequestParam String artistName) {
+        HashMap<String, String> response = new HashMap<>();
+
+        //call musicBrainz query helper from ArtistService
+        String mbid = artistService.resolveMBIDfromArtistNameString(artistName);
+
+        if (mbid == null) {
+            response.put("error", "no MBID found for artist: " + artistName);
+            return response;
+        }
+        //save or retrieve artist from DB
+        Artist artist = artistService.findOrCreateArtist(artistName);
+        artist.setMbid(mbid);
+        artistService.saveArtist(artist);
+
+        //send back clean name + mbid for use by frontend
+        response.put("mbid", mbid);
+        response.put("name", artist.getName());
+
+        return response;
+    }
+
 
 }

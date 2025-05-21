@@ -35,14 +35,16 @@ public class SetlistFMFetchService {
                 .baseUrl("https://api.setlist.fm/rest/1.0")
                 .build();
     }
+    //NEW- fetch by mbid instead of string to ensure accuracy- test edge cases further
     //helper method to send GET request to Setlist.fm API for a specific artist page
-    public SetlistResponseWrapper fetchSetlistPage(String artistName, int page, int size) {
+    public SetlistResponseWrapper fetchSetlistPage(String mbid, int page, int size) {
+        long start = System.currentTimeMillis();
         try {
             //send request to Setlist.fm API for one page of setlists
-            return webClient.get()
+            SetlistResponseWrapper response = webClient.get()
                     .uri(uriBuilder -> uriBuilder
-                            .path("/search/setlists")
-                            .queryParam("artistName", artistName)
+                            .path("/artist/" + mbid + "/setlists")
+                            .queryParam("artistMBID", mbid)
                             .queryParam("p", page)
                             .queryParam("size", size)
                             .build())
@@ -57,10 +59,14 @@ public class SetlistFMFetchService {
                     .bodyToMono(SetlistResponseWrapper.class)
                     //block request until full data received
                     .block();
+
+            System.out.println("⏱ Page " + page + " fetched in " + (System.currentTimeMillis() - start) + " ms");
+
+            return response;
         }
         catch (WebClientResponseException.NotFound e) {
             //404 error — reached past last page
-            System.out.println("Page " + page + " not found for artist " + artistName + ". Ending pagination.");
+            System.out.println("No setlists found for artist MBID " + mbid);
             return null;
         } catch (WebClientResponseException.TooManyRequests e) {
             //429 rate limit hit- try sleeping, retry once
@@ -69,7 +75,7 @@ public class SetlistFMFetchService {
                 //sleep 30 sec
                 Thread.sleep(30_000);
                 //retry once after sleep
-                return fetchSetlistPage(artistName, page, size);
+                return fetchSetlistPage(mbid, page, size);
             }
             catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
@@ -80,7 +86,12 @@ public class SetlistFMFetchService {
             }
             return null;
         }
+        catch (Exception e) {
+            System.out.println("Error fetching setlists by MBID: " + e.getMessage());
+            return null;
+        }
     }
+
     //Transforms the API data/DTOs into database entities
     //method to convert API setlist from Setlist.fm into local Setlist entity saveable to local DB
     public Setlist mapApiSetlistToEntity(ApiSetlist apiSetlist, Artist artist) {
