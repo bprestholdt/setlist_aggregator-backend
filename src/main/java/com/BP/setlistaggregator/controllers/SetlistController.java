@@ -51,12 +51,14 @@ public class SetlistController {
         List<SongsRanked> encores = setlistService.getTopEncoreSongs(artist, maxSetlists);
         List<SongsRanked> rarest = setlistService.getRarestSongs(artist, maxSetlists);
         List<SongsRanked> openers = setlistService.getTopOpenerSongs(artist, maxSetlists);
+        List<SongsRanked> mostPlayed = setlistService.getMostPlayedSongs(artist, maxSetlists);
         double avgLength = setlistService.getAvgSetlistLength(artist, maxSetlists);
 
         //log each result for debugging
-        System.out.println("encores class: " + (encores != null ? encores.getClass().getName() : "null"));
-        System.out.println("rarest class: " + (rarest != null ? rarest.getClass().getName() : "null"));
-        System.out.println("openers class: " + (openers != null ? openers.getClass().getName() : "null"));
+        System.out.println("encores: " +encores);
+        System.out.println("rarest: " +rarest);
+        System.out.println("openers: " +openers);
+        System.out.println("mostPlayed: " + mostPlayed);
         System.out.println("averageLength: " + avgLength);
 
         //build response map of stats
@@ -65,6 +67,7 @@ public class SetlistController {
         stats.put("rarest", rarest);
         stats.put("averageLength", avgLength);
         stats.put("openers", openers);
+        stats.put("mostPlayed", mostPlayed);
 
         return stats;
     }

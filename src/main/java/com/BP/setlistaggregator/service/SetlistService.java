@@ -204,6 +204,8 @@ public class SetlistService {
             //log setlist structure from page
             logSetlistStructure(apiPageResults);
 
+            System.out.println("Processing API page " + page + " with " + apiPageResults.size() + " setlists");
+
             //call helper method to extract new setlists from fetched page
             List<Setlist> newSetlists = processPage(apiPageResults, artist, maxSetlists, fetchAll, allFetched.size());
 
@@ -605,7 +607,9 @@ public class SetlistService {
                 //System.out.println("Counting the song: " + title + ",  total so far is: " + (count + 1));
 
             }
-            System.out.println("Skipped " + skipped + " songs due to blank or null titles");
+            if (skipped > 1) {
+                System.out.println("Skipped " + skipped + " songs due to blank or null titles");
+            }
         }
 
         //log songCounts before we sort them to make sure counting function correct
@@ -620,6 +624,57 @@ public class SetlistService {
             System.out.println(" → " + song.getTitle() + " (played " + song.getCount() + " times)");
         }
         return rarest;
+    }
+
+    //method to calculate most played songs from given range in descending order
+    public List<SongsRanked> getMostPlayedSongs(String artist, int maxSetlists) {
+
+        //retrieve artist's setlists
+        List<Setlist> setlists = getArtistSetlists(artist, maxSetlists);
+
+        //map to count song appearances
+        Map<String, Integer> songCounts = new HashMap<>();
+
+        //loop thru each setlist
+        for (Setlist setlist : setlists) {
+            //get songs from each setlist
+            List<Song> songs = extractSongs(setlist);
+
+            //skip empty setlists
+            if (songs == null || songs.isEmpty()) {
+                continue;
+            }
+
+            int skipped = 0;
+            //loop thru each song to count its appearances in the setlists
+            for (Song song : songs) {
+                String title = song.getTitle();
+
+                //skip song if title is null or blank
+                if (title == null || title.isBlank()) {
+                    System.out.println("Skipping song with invalid title in most played calculation");
+                    skipped++;
+                    continue;
+                }
+                int playCount = songCounts.getOrDefault(title, 0);
+                songCounts.put(title, playCount + 1);
+            }
+            if (skipped > 1) {
+                System.out.println("Skipped " + skipped + " songs due to blank or null titles");
+            }
+        }
+        //log songCounts before we sort them
+        System.out.println("Total unique songs counted: " + songCounts.size());
+
+        //call helper method to sort songs in descending order to return most played
+        List<SongsRanked> mostPlayed = getTopRankedSongs(songCounts, 5, false);
+
+        //log final output
+        System.out.println("Top 5 most played songs:");
+        for (SongsRanked song : mostPlayed) {
+            System.out.println(" → " + song.getTitle() + " (played " + song.getCount() + " times)");
+        }
+        return mostPlayed;
     }
 
     //method to calculate thr average # of songs per setlist in given range
@@ -699,7 +754,7 @@ public class SetlistService {
             songs.addAll(setlist.getSongs());
 
             //log amount of songs extracted
-            System.out.println("Extracted " + songs.size() + " songs from setlist on " + setlist.getDate());
+            //System.out.println("Extracted " + songs.size() + " songs from setlist on " + setlist.getDate());
         }
         else {
             System.out.println("Setlist on " + setlist.getDate() + " has null song list");
