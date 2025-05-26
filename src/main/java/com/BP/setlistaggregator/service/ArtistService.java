@@ -82,6 +82,7 @@ public class ArtistService {
 
             if (!artists.isEmpty()) {
                 JSONObject firstArtist = artists.getJSONObject(0);
+
                 //get the top artist's MBID to use in Setlist fm query
                 return firstArtist.getString("id");
             } else {

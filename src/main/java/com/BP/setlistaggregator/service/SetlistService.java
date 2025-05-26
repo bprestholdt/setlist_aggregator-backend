@@ -44,6 +44,9 @@ public class SetlistService {
     //max allowed size (in setlists per page) per setlist.fm API- should reduce time to fetch all by at least 50% along with total API calls compared to default 20
     private static final int PAGE_SIZE = 50;
 
+    //configure how often to query API for new concerts since last fetched date
+    private static final int REFRESH_THRESHOLD_DAYS = 7;
+
     //Constructor injection of dependencies, Spring will automatically inject these dependendies when app starts
     public SetlistService(SetlistRepository setlistRepository, ArtistService artistService, SetlistFMFetchService fetcher) {
         this.setlistRepository = setlistRepository;
@@ -95,15 +98,26 @@ public class SetlistService {
         if (existingSetlists.isEmpty()) {
             return true;
         }
-        //fetch if user wants all setlists
-        if (maxSetlists == -1) {
-        //only fetch if artist is not marked as fully fetched
-        //OR if lastFetchedDate is missing-> we cant know if theres new ones
-            return !artist.isFullyFetched() || artist.getLastFetchedDate() == null;
+        //if fully fetched previously
+        if (artist.isFullyFetched()) {
+        //still may need to fetch new concerts that have been uploaded since lastFetchedDate
+        if (artist.getLastFetchedDate() == null) {
+            return true;
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate lastFetched = artist.getLastFetchedDate();
+        //gotta fetch for new shows
+        if (lastFetched.isBefore(today.minusDays(REFRESH_THRESHOLD_DAYS))) {
+            return true;
+        }
+            //db already has latest data we assume if we've fetched in last week
+            return false;
         }
         //for ranges like 20 or 100-> fetch only if  we dont have enough yet
         return existingSetlists.size() < maxSetlists;
     }
+
     //helper method for duplicate logic in getArtistSetlists
     private List<Setlist> getOrderedSetlistsfromDB(String artist) {
         return setlistRepository.findByArtistNameOrderByDateDesc(artist);
@@ -132,6 +146,7 @@ public class SetlistService {
             //only resolve if dont already have it saved
             mbid = artistService.resolveMBIDfromArtistNameString(artistName);
             artist.setMbid(mbid);
+            artistService.saveArtist(artist);
             System.out.println("Resolved MBID: " + mbid);
         }
 
@@ -390,10 +405,6 @@ public class SetlistService {
                 //add to list of results
                 results.add(dbSetlist);
 
-                //if we hit desired count of setlists from search, stop loop early
-                if (!fetchAll && (alreadyFetchedCtr + results.size() >= maxSetlists)) {
-                    break;
-                }
             } catch (Exception e) {
                 System.out.println("Skipping unparseable or invalid setlist on date " + apiSetlist.getEventDate());
             }
