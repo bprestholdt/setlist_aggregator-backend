@@ -93,11 +93,20 @@ public class SetlistService {
     }
     //helper method to determine if we should fetch from the API
     private boolean shouldFetchFromAPI(List<Setlist> existingSetlists, int maxSetlists, Artist artist) {
+
+        LocalDate today = LocalDate.now();
+
         //determine if we need more data according to maxSetlists (if user requested all setlists or more than we have in db)
         //fetch more if we have no setlists, if the user chose fetch all, or if we have less than maxSetlists in db
         if (existingSetlists.isEmpty()) {
             return true;
         }
+
+        //if user wants all setlists and we havent finished full history, must fetch
+        if (maxSetlists == -1) {
+            return !artist.isFullyFetched();
+        }
+
         //if fully fetched previously
         if (artist.isFullyFetched()) {
         //still may need to fetch new concerts that have been uploaded since lastFetchedDate
@@ -105,7 +114,6 @@ public class SetlistService {
             return true;
         }
 
-        LocalDate today = LocalDate.now();
         LocalDate lastFetched = artist.getLastFetchedDate();
         //gotta fetch for new shows
         if (lastFetched.isBefore(today.minusDays(REFRESH_THRESHOLD_DAYS))) {
@@ -129,6 +137,10 @@ public class SetlistService {
 
         //fetch all setlists if -1
         boolean fetchAll = maxSetlists == -1;
+
+        boolean savedNewSetlists = false;
+
+
 
         System.out.println("Calling findOrCreateArtist with input: " + artistName);
 
@@ -233,6 +245,9 @@ public class SetlistService {
             setlistRepository.saveAll(newSetlists);
             //add new fetched setlists to full collection so we can track progress
             allFetched.addAll(newSetlists);
+
+            savedNewSetlists = true;
+
             //update newest fetched date if necessary
             for (Setlist setlist : newSetlists) {
                 if (setlist.getDate() != null && (newestFetchedDate == null || setlist.getDate().isAfter(newestFetchedDate))) {
@@ -247,12 +262,12 @@ public class SetlistService {
                 throttleTime();
             }
 
-            //catch cases where API ends with null or nothing, ie last page is empty
+           /* //catch cases where API ends with null or nothing, ie last page is empty
             if (fetchAll && allFetched.size() > 0 && !artist.isFullyFetched()) {
                 artist.setFullyFetched(true);
                 artistService.saveArtist(artist);
                 System.out.println("Marked artist as fully fetched after exhausting API pages.");
-            }
+            } */
         }
 
         //persist updated fetch date to DB
@@ -266,6 +281,15 @@ public class SetlistService {
         //logging after loop to ensure returning correct data
         System.out.println("Done fetching. Total pages visited: " + (page - 1));
         System.out.println("total setlists fetched and saved: " + allFetched.size());
+
+        if (fetchAll && savedNewSetlists) {
+            artist.setFullyFetched(true);
+            artistService.saveArtist(artist);
+            System.out.println("Marked artist as fully fetched after exhausting API pages.");
+        } else if (fetchAll) {
+            System.out.println("Fetch ended, but no new setlists were saved — not marking fullyFetched");
+        }
+
 
         //trim size in case request less than requested range
         //return saved DB setlists
@@ -428,7 +452,7 @@ public class SetlistService {
             //logging to help understand when we are requesting too much for testing
             System.out.println("Throttling to avoid 2/sec API rate limit.... sleepy time for 1.5 seconds. ZZZZZZZZZZZ");
             //sleep 1.5 second every page
-            Thread.sleep(1500);
+            Thread.sleep(600);
         }
         catch (InterruptedException e) {
             //safely restore interrupt status
