@@ -452,7 +452,7 @@ public class SetlistService {
             //logging to help understand when we are requesting too much for testing
             System.out.println("Throttling to avoid 2/sec API rate limit.... sleepy time for 1.5 seconds. ZZZZZZZZZZZ");
             //sleep 1.5 second every page
-            Thread.sleep(600);
+            Thread.sleep(70L);
         }
         catch (InterruptedException e) {
             //safely restore interrupt status
