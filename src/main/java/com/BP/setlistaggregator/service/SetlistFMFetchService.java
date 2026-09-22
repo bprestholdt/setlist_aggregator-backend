@@ -12,8 +12,6 @@ import java.time.format.DateTimeFormatter;
 //increase max buffer size
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import reactor.netty.http.client.HttpClient;
-import org.springframework.core.io.buffer.DataBufferLimitException;
-import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import java.time.Duration;
 
 
@@ -80,10 +78,6 @@ public class SetlistFMFetchService {
             catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
-            catch (Exception retryException) {
-                //even the retry failed- log and return null instead of breaking
-                System.out.println("Retry failed after rate limit: " + retryException.getMessage());
-            }
             return null;
         }
         catch (Exception e) {
@@ -140,13 +134,6 @@ public class SetlistFMFetchService {
                         dbSong.setPosition(positionCtr);
 
                         dbSongs.add(dbSong);
-
-                        //option to verify positions
-                        //System.out.println("Saved song '" + apiSong.getName() + "' at position " + positionCtr);
-
-
-                        //debug log to confirm songs are being parsed and position being assigned correctly
-                        //System.out.println("Mapped song: " + apiSong.getName() + " at position " + positionCtr);
                         positionCtr++;
                     }
                 }

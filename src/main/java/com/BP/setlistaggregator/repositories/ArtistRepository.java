@@ -19,6 +19,5 @@ public interface ArtistRepository extends JpaRepository<Artist, Long> {
     //optional to handle null returns
     Optional<Artist> findByMbid(String mbid);
     Optional<Artist> findByNameIgnoreCase(String name);
-    //Optional<Artist> findAll();
 
 }

@@ -2,7 +2,6 @@ package com.BP.setlistaggregator.controllers;
 
 import com.BP.setlistaggregator.model.Artist;
 import com.BP.setlistaggregator.service.ArtistService;
-import com.BP.setlistaggregator.repositories.ArtistRepository;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.HashMap;

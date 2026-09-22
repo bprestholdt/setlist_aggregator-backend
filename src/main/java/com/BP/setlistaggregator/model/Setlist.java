@@ -32,15 +32,6 @@ public class Setlist {
     public Setlist() {
 
     }
-    //paramaterized constructor
-    //helps with manual setlist construction in SetlistFMFetchService
-    public Setlist(LocalDate date, String venue, String city, String country, Artist artist) {
-        this.date = date;
-        this.venue = venue;
-        this.city = city;
-        this.country = country;
-        this.artist = artist;
-    }
 
     //getters and setters, allow service layer and controller to modify setlist objects
 

@@ -5,7 +5,6 @@ import com.BP.setlistaggregator.model.Artist;
 import org.springframework.stereotype.Service;
 import java.util.Optional;
 import java.util.List;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -44,8 +43,6 @@ public class ArtistService {
         //create new artist if not found in db
         Artist newArtist = new Artist();
         newArtist.setName(artistName);
-        newArtist.setFullyFetched(false);
-        newArtist.setLastFetchedDate(null);
         //log creation
         System.out.println("Created new artist entry for: " + artistName);
         return artistRepository.save(newArtist);
@@ -89,12 +86,11 @@ public class ArtistService {
                 System.out.println("No results found in MBID for: " + artistName);
                 return null;
             }
+        } catch (Exception e) {
+            System.err.println("Failed to fetch MBID from MusicBrainz " + e.getMessage());
+            return null;
         }
-                    catch (Exception e) {
-                        System.err.println ("Failed to fetch MBID from MusicBrainz " + e.getMessage());
-                        return null;
-            }
-        }
+    }
 
     //helper method to look up artist using MusicBrainz ID (mbid)
     public Optional<Artist> findByMbid(String mbid) {

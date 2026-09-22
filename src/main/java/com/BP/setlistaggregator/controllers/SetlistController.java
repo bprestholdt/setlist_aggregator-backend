@@ -1,7 +1,6 @@
 package com.BP.setlistaggregator.controllers;
 
-import com.BP.setlistaggregator.model.*;
-import com.BP.setlistaggregator.repositories.SetlistRepository;
+import com.BP.setlistaggregator.model.Setlist;
 import com.BP.setlistaggregator.service.SetlistService;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -11,7 +10,6 @@ import com.BP.setlistaggregator.internalDTO.SongsRanked;
 
 //class to handle requests involving setlist data, stats
 //allow React frontend on port 3000 to make requests to Spring Boot backend on 8080
-@CrossOrigin(origins = "https://setlist-aggregator-frontend.vercel.app")
 //annotation to tell Spring this is a REST API controller that returns JSON
 @RestController
 //base URL for endpoints in class
@@ -85,13 +83,5 @@ public class SetlistController {
         catch (NumberFormatException e) {
             return 50;
         }
-        }
-
-    /* implement in future - endpoint for summary of stats
-    //Get stats for artists sets
-    @GetMapping("/stats")
-    public String getArtistStats(@RequestParam String artist) {
-        //save setlist to database
-        return setlistService.calculateArtistStats(artist);
-    } */
+    }
 }

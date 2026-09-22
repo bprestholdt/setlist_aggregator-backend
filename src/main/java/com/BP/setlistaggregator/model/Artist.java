@@ -2,7 +2,6 @@ package com.BP.setlistaggregator.model;
 
 import jakarta.persistence.*;
 import java.util.List;
-import com.BP.setlistaggregator.model.Setlist;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.LocalDate;
 
@@ -40,12 +39,6 @@ public class Artist {
     //default constructor
     public Artist() {}
 
-    //paramaterized constructor
-    public Artist(String name, String mbid) {
-        this.name = name;
-        this.mbid = mbid;
-    }
-
     //getters
     public Long getId() {
         return id;
@@ -69,7 +62,7 @@ public class Artist {
     }
     public void setSetlists(List<Setlist> setlists) {
         this.setlists = setlists;
-}
+    }
 
     //toString for debugging/logging
     @Override
@@ -93,7 +86,4 @@ public class Artist {
     public void setLastFetchedDate(LocalDate lastFetchedDate) {
         this.lastFetchedDate = lastFetchedDate;
     }
-
-
-
 }

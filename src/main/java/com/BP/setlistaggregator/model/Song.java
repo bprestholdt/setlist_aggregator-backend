@@ -1,8 +1,6 @@
 package com.BP.setlistaggregator.model;
 
 import jakarta.persistence.*;
-import java.util.List;
-import com.BP.setlistaggregator.model.Setlist;
 //represents a single song in a setlist
 @Entity
 public class Song {
@@ -23,12 +21,6 @@ public class Song {
 
     public Song() {
 
-    }
-    //building song entity used in mapApiSetlistToEntity method in fetch service
-    public Song(String title, int position, Setlist setlist) {
-        this.title = title;
-        this.position = position;
-        this.setlist = setlist;
     }
 
     public Long getId() {

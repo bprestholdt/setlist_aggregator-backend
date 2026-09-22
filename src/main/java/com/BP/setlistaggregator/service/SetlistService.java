@@ -8,7 +8,6 @@ import com.BP.setlistaggregator.model.Song;
 import com.BP.setlistaggregator.externalDTO.SetSection;
 import com.BP.setlistaggregator.externalDTO.ApiSetlist;
 import com.BP.setlistaggregator.externalDTO.SetlistResponseWrapper;
-import com.BP.setlistaggregator.externalDTO.Sets;
 import com.BP.setlistaggregator.internalDTO.SongsRanked;
 
 
@@ -78,7 +77,7 @@ public class SetlistService {
             else {
                 //either not fully fetched, or maxSetlists is bigger than what we have- fetch from SEtlist fm.
                 System.out.println("Fetching more data from Setlist.fm API for: " + artist);
-                fetchFromSetlistFm(artistObj.getName(), maxSetlists);
+                fetchFromSetlistFm(artistObj, maxSetlists);
             }
 
             //re-query db to get latest results
@@ -133,19 +132,14 @@ public class SetlistService {
     //method to fetch artist setlists from setlistfm
     //paginated to allow it to fetch 20 setlists fast, 100 normal or ALL setlists at a throttled rate
     //if maxSetlists = -1, fetch all pages, otherwise fetch up to maxSetlists value
-    private List<Setlist> fetchFromSetlistFm(String artistName, int maxSetlists) {
+    private void fetchFromSetlistFm(Artist artist, int maxSetlists) {
 
         //fetch all setlists if -1
         boolean fetchAll = maxSetlists == -1;
 
         boolean savedNewSetlists = false;
 
-
-
-        System.out.println("Calling findOrCreateArtist with input: " + artistName);
-
-        //check if artist exists in local DB already using helper method
-        Artist artist = artistService.findOrCreateArtist(artistName);
+        String artistName = artist.getName();
 
         //keep track of artist's last fetched date
         LocalDate newestFetchedDate = artist.getLastFetchedDate();
@@ -164,20 +158,8 @@ public class SetlistService {
 
         if (mbid == null) {
             System.out.println("Could not resolve MBID for artist: " + artistName);
-            return Collections.emptyList();
+            return;
         }
-
-        //check if artist has already been fully fetched from API to avoid duplicate API calls
-        //also check for any new concerts using last fetched date if already fetched all
-        if (maxSetlists == -1 && artist.isFullyFetched()) {
-            System.out.println("Artist " + artistName + " already has full historical setlists in DB.");
-            System.out.println("Checking for any new concerts after last fetch date: " + artist.getLastFetchedDate());
-
-            //always attempt to fetch newer concerts in case any were added after last fetch
-            fetchRecentSetlists(artist);
-            return getOrderedSetlistsfromDB(artistName);
-        }
-
 
         //list to hold all the setlists as we paginate
         List<Setlist> allFetched = new ArrayList<>();
@@ -190,7 +172,7 @@ public class SetlistService {
 
         //loop to retrieve setlists from a certain # of pages on setlistfm. loop stops once we reach maxSetlists and boolean stop = true
         while (true) {
-            if (shouldExitEarly(fetchAll, maxSetlists, allFetched.size(), page, duplicatePageStreak)) {
+            if (shouldExitEarly(fetchAll, maxSetlists, allFetched.size(), page)) {
                 break;
             }
 
@@ -219,7 +201,7 @@ public class SetlistService {
             System.out.println("Processing API page " + page + " with " + apiPageResults.size() + " setlists");
 
             //call helper method to extract new setlists from fetched page
-            List<Setlist> newSetlists = processPage(apiPageResults, artist, maxSetlists, fetchAll, allFetched.size());
+            List<Setlist> newSetlists = processPage(apiPageResults, artist);
 
             if (newSetlists.isEmpty()) {
                 //if we saved nothing, continue to next page unless it's too many in a row
@@ -258,16 +240,9 @@ public class SetlistService {
             page++;
 
             //check if we need to pause calls to avoid 429 errors
-            if (gottaThrottle(fetchAll, maxSetlists, page)) {
+            if (gottaThrottle(page)) {
                 throttleTime();
             }
-
-           /* //catch cases where API ends with null or nothing, ie last page is empty
-            if (fetchAll && allFetched.size() > 0 && !artist.isFullyFetched()) {
-                artist.setFullyFetched(true);
-                artistService.saveArtist(artist);
-                System.out.println("Marked artist as fully fetched after exhausting API pages.");
-            } */
         }
 
         //persist updated fetch date to DB
@@ -289,11 +264,6 @@ public class SetlistService {
         } else if (fetchAll) {
             System.out.println("Fetch ended, but no new setlists were saved — not marking fullyFetched");
         }
-
-
-        //trim size in case request less than requested range
-        //return saved DB setlists
-        return limitResults(allFetched, fetchAll, maxSetlists);
     }
 
     //modified fetch to return setlists newer than our last one by this artist using last fetched date
@@ -350,7 +320,7 @@ public class SetlistService {
                 }
                 page++;
 
-                if (gottaThrottle(true, -1, page)) {
+                if (gottaThrottle(page)) {
                     throttleTime();
                 }
             }
@@ -364,7 +334,7 @@ public class SetlistService {
 
     //fetchfromsetlistfm helper methods to modularize code
     //helper method to streamline exit logic
-    private boolean shouldExitEarly(boolean fetchAll, int maxSetlists, int fetchedSoFar, int page, int dupStreak) {
+    private boolean shouldExitEarly(boolean fetchAll, int maxSetlists, int fetchedSoFar, int page) {
         //return true if we need to exit fetch loop
         //stop immediately if already fetched enough to satisfy maxSetlists range
         if (!fetchAll && fetchedSoFar >= maxSetlists) {
@@ -411,7 +381,7 @@ public class SetlistService {
 
     //helper method to convert API setlists (from current page) into DB entities and skip dupes/invalid entries
     //stops early if maxSetlists reached
-    private List<Setlist> processPage(List<ApiSetlist> apiSetlists, Artist artist, int maxSetlists, boolean fetchAll, int alreadyFetchedCtr) {
+    private List<Setlist> processPage(List<ApiSetlist> apiSetlists, Artist artist) {
         List<Setlist> results = new ArrayList<>();
 
         //loop thru all setlists returned by API
@@ -439,11 +409,7 @@ public class SetlistService {
     }
 
     //helper method to determine if we need to pause calls to avoid hitting API rate limit
-    private boolean gottaThrottle (boolean fetchAll, int maxSetlists, int currentPage) {
-        //want to throttle only when fetching a lot of data (fetchAll option or maxSetlists > 100
-        //boolean isLargeFetch = fetchAll || maxSetlists > 100;
-        //always throttle every 2 pages after page 1 in heavy reqs
-       // return isLargeFetch && currentPage > 1 && currentPage % 2 == 0;
+    private boolean gottaThrottle(int currentPage) {
         return currentPage > 1;
     }
     //helper method to pause execution (sleep) to avoid rate limits (only should occur if fetching all time)
@@ -458,13 +424,6 @@ public class SetlistService {
             //safely restore interrupt status
             Thread.currentThread().interrupt();
         }
-    }
-    //helper to trim results
-    private List<Setlist> limitResults(List<Setlist> allSetlists, boolean fetchAll, int maxSetlists) {
-        if (!fetchAll && allSetlists.size() > maxSetlists) {
-            return allSetlists.subList(0, maxSetlists);
-        }
-        return allSetlists;
     }
 
     //print raw json from API for debugging empty setlist issue
@@ -501,7 +460,7 @@ public class SetlistService {
             List<Song> songs = extractSongs(setlist);
 
             //skip empty setlists
-            if (songs == null || songs.isEmpty()) {
+            if (songs.isEmpty()) {
                 continue;
             }
             //call helper method to find song at encore position
@@ -513,9 +472,6 @@ public class SetlistService {
                 if (title != null && !title.isBlank()) {
                     int count = encoreCounts.getOrDefault(title, 0);
                     encoreCounts.put(title, count + 1);
-                    //logging to verify mapping works and songs are saved
-                    //if doesn't print, extractSongs call is pulling from setlists with empty song lists- meaning mapping doesn't work or songs not being sdaved
-                   // System.out.println("Encore song found, name:  " + title + " at position " + encore.getPosition());
                 }
                 else {
                     System.out.println("Encore had no valid title: " + encore);
@@ -536,12 +492,7 @@ public class SetlistService {
         for (SongsRanked song : topEncores) {
             System.out.println(" - " + song.getTitle() + " (played " + song.getCount() + " times)");
         }
-        //log type and null check
-        System.out.println("EncoreSongs output: " + (topEncores != null ? topEncores.size() : "null"));
-        System.out.println("EncoreSongs class: " + (topEncores != null ? topEncores.getClass().getName() : "null"));
-
         return topEncores;
-
     }
     //helper method for encores containing logic to find highest position song
     //find song with highest position in setlist (will be last song/encore)
@@ -573,7 +524,7 @@ public class SetlistService {
             List<Song> songs = extractSongs(setlist);
 
             //skip empty setlists
-            if (songs == null || songs.isEmpty()) {
+            if (songs.isEmpty()) {
                 continue;
             }
 
@@ -610,7 +561,7 @@ public class SetlistService {
             List<Song> songs = extractSongs(setlist);
 
             //skip empty setlists
-            if (songs == null || songs.isEmpty()) {
+            if (songs.isEmpty()) {
                 continue;
             }
             //loop thru each song to count its appearances
@@ -626,10 +577,6 @@ public class SetlistService {
                 }
                 int count = songCounts.getOrDefault(title, 0);
                 songCounts.put(title, count + 1);
-
-                //log to confirm song is counted
-                //System.out.println("Counting the song: " + title + ",  total so far is: " + (count + 1));
-
             }
             if (skipped > 1) {
                 System.out.println("Skipped " + skipped + " songs due to blank or null titles");
@@ -665,7 +612,7 @@ public class SetlistService {
             List<Song> songs = extractSongs(setlist);
 
             //skip empty setlists
-            if (songs == null || songs.isEmpty()) {
+            if (songs.isEmpty()) {
                 continue;
             }
 
@@ -718,7 +665,7 @@ public class SetlistService {
             List<Song> songs = extractSongs(setlist);
 
             //skip empty or null song lists
-            if (songs == null || songs.isEmpty()) {
+            if (songs.isEmpty()) {
                 continue;
             }
             //increment total songs by # in setlist
@@ -730,11 +677,11 @@ public class SetlistService {
         if (setsWithSongs == 0) {
             return 0.0;
         }
-        //log results to console
-        System.out.println("Average setlist length for " + artist + ": " + ((double) totalSongs / setsWithSongs));
         //calculate average and return as dbl
-        return (double) totalSongs / setsWithSongs;
-
+        double avgLength = (double) totalSongs / setsWithSongs;
+        //log results to console
+        System.out.println("Average setlist length for " + artist + ": " + avgLength);
+        return avgLength;
     }
 
     //helper method to return top N ranked songs based on play counts
@@ -757,7 +704,7 @@ public class SetlistService {
         //convert to ranked DTOs of songs instead of just titles so we can return stats
         List <SongsRanked> topSongs = new ArrayList<>();
 
-        for (int i = 0; i < entries.size() && i < maxResults; i++) {
+        for (int i = 0; i < entries.size(); i++) {
             Map.Entry<String, Integer> entry = entries.get(i);
             //add 1 to i so first song is ranked 1 and not 0
             //create new object of DTO and add it to list
@@ -776,9 +723,6 @@ public class SetlistService {
         if (setlist.getSongs() != null) {
             //loop thru each set section
             songs.addAll(setlist.getSongs());
-
-            //log amount of songs extracted
-            //System.out.println("Extracted " + songs.size() + " songs from setlist on " + setlist.getDate());
         }
         else {
             System.out.println("Setlist on " + setlist.getDate() + " has null song list");
@@ -796,14 +740,6 @@ public class SetlistService {
             System.out.println("Date parse error for duplicate check: " + apiSetlist.getEventDate());
             // treat unparseable entries as duplicates to be safe
             return true;
-                }
-         }
+        }
     }
-
-
-
-
-
-
-
-
+}

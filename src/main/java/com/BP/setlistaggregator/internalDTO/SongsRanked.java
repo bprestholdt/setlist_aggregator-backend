@@ -32,11 +32,11 @@ public class SongsRanked {
         this.count = count;
     }
 
-    public java.lang.String getTitle() {
+    public String getTitle() {
         return title;
     }
 
-    public void setTitle(java.lang.String title) {
+    public void setTitle(String title) {
         this.title = title;
     }
 }
