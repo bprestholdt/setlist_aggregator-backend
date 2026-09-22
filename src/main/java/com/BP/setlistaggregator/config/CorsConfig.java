@@ -14,9 +14,11 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**")
-                        .allowedOrigins(
+                        //patterns so Vercel's per-deployment preview links work too, not just the main domain
+                        .allowedOriginPatterns(
                                 "http://localhost:3000",
-                                "https://setlist-aggregator-frontend.vercel.app"
+                                "https://setlist-aggregator-frontend.vercel.app",
+                                "https://setlist-aggregator-frontend-*-bprestholdts-projects.vercel.app"
                         )
                         //the API only has GET endpoints and the frontend doesn't send cookies
                         .allowedMethods("GET", "OPTIONS")
