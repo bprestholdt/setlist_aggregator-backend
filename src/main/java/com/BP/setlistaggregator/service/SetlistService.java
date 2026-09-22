@@ -9,6 +9,7 @@ import com.BP.setlistaggregator.externalDTO.SetSection;
 import com.BP.setlistaggregator.externalDTO.ApiSetlist;
 import com.BP.setlistaggregator.externalDTO.SetlistResponseWrapper;
 import com.BP.setlistaggregator.internalDTO.SongsRanked;
+import com.BP.setlistaggregator.internalDTO.SetlistConsistency;
 
 
 import java.time.LocalDate;
@@ -49,6 +50,12 @@ public class SetlistService {
 
     //configure how often to query API for new concerts since we last checked
     private static final int REFRESH_THRESHOLD_DAYS = 7;
+
+    //a song has to miss at least this many shows in a row before its return counts as a bust-out
+    private static final int MIN_BUSTOUT_GAP = 3;
+
+    //share of shows a song must appear in to count as part of the artist's core set
+    private static final double CORE_SONG_SHARE = 0.9;
 
     //date format used by setlist.fm for eventDate
     private static final DateTimeFormatter SETLISTFM_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
@@ -715,6 +722,128 @@ public class SetlistService {
         //log results to console
         log.debug("Average setlist length: " + avgLength);
         return avgLength;
+    }
+
+    //method to measure how similar the artist's shows are to each other
+    public SetlistConsistency getSetlistConsistency(List<Setlist> setlists) {
+        //distinct song titles for each show, oldest show first
+        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
+        if (shows.isEmpty()) {
+            return null;
+        }
+
+        //count how many shows each song appeared in
+        Map<String, Integer> showsPerSong = new HashMap<>();
+        for (Set<String> show : shows) {
+            for (String title : show) {
+                showsPerSong.merge(title, 1, Integer::sum);
+            }
+        }
+
+        //average share of each show's songs that were also played at the show before it
+        Double repeatRate = null;
+        if (shows.size() > 1) {
+            double totalShare = 0;
+            for (int i = 1; i < shows.size(); i++) {
+                Set<String> current = shows.get(i);
+                Set<String> previous = shows.get(i - 1);
+                int repeated = 0;
+                for (String title : current) {
+                    if (previous.contains(title)) {
+                        repeated++;
+                    }
+                }
+                totalShare += (double) repeated / current.size();
+            }
+            repeatRate = 100.0 * totalShare / (shows.size() - 1);
+        }
+
+        //core songs appear at 90%+ of shows, one-offs at exactly one
+        int coreThreshold = (int) Math.ceil(shows.size() * CORE_SONG_SHARE);
+        int coreSongs = 0;
+        int oneOffs = 0;
+        for (int count : showsPerSong.values()) {
+            if (count >= coreThreshold) {
+                coreSongs++;
+            }
+            if (count == 1) {
+                oneOffs++;
+            }
+        }
+        return new SetlistConsistency(repeatRate, coreSongs, showsPerSong.size(), oneOffs);
+    }
+
+    //method to find the song-to-song transitions the artist plays most often (song A immediately followed by song B)
+    public List<SongsRanked> getTopTransitions(List<Setlist> setlists) {
+        Map<String, Integer> pairCounts = new HashMap<>();
+
+        for (Setlist setlist : setlists) {
+            //put songs in the order they were played
+            List<Song> songs = extractSongs(setlist);
+            songs.sort(Comparator.comparingInt(Song::getPosition));
+
+            for (int i = 1; i < songs.size(); i++) {
+                String from = songs.get(i - 1).getTitle();
+                String to = songs.get(i).getTitle();
+                //skip blank titles and a song following itself
+                if (!isValidTitle(from) || !isValidTitle(to) || from.equals(to)) {
+                    continue;
+                }
+                pairCounts.merge(from + " → " + to, 1, Integer::sum);
+            }
+        }
+        //a pair heard only once isn't a pattern
+        pairCounts.values().removeIf(count -> count < 2);
+
+        return getTopRankedSongs(pairCounts, 5, false);
+    }
+
+    //method to find songs that came back after the longest absence (most shows missed in a row) within the range
+    //count in each result = number of shows the song sat out before returning
+    public List<SongsRanked> getBiggestBustouts(List<Setlist> setlists) {
+        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
+
+        //index of the last show each song was played at, and the longest gap seen for each song
+        Map<String, Integer> lastShowIndex = new HashMap<>();
+        Map<String, Integer> longestGap = new HashMap<>();
+
+        for (int i = 0; i < shows.size(); i++) {
+            for (String title : shows.get(i)) {
+                Integer lastIndex = lastShowIndex.get(title);
+                if (lastIndex != null) {
+                    int showsMissed = i - lastIndex - 1;
+                    if (showsMissed >= MIN_BUSTOUT_GAP) {
+                        longestGap.merge(title, showsMissed, Math::max);
+                    }
+                }
+                lastShowIndex.put(title, i);
+            }
+        }
+        return getTopRankedSongs(longestGap, 5, false);
+    }
+
+    //helper to get each show's distinct song titles, oldest show first
+    private List<Set<String>> getShowSongTitlesOldestFirst(List<Setlist> setlists) {
+        List<Set<String>> shows = new ArrayList<>();
+        for (Setlist setlist : setlists) {
+            Set<String> titles = new HashSet<>();
+            for (Song song : extractSongs(setlist)) {
+                if (isValidTitle(song.getTitle())) {
+                    titles.add(song.getTitle());
+                }
+            }
+            if (!titles.isEmpty()) {
+                shows.add(titles);
+            }
+        }
+        //setlists come newest first, so reverse to walk through shows in the order they happened
+        Collections.reverse(shows);
+        return shows;
+    }
+
+    //helper to skip songs with missing titles
+    private boolean isValidTitle(String title) {
+        return title != null && !title.isBlank();
     }
 
     //helper method to return top N ranked songs based on play counts

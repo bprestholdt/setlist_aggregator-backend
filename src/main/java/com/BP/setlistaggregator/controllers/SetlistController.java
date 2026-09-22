@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import com.BP.setlistaggregator.internalDTO.SongsRanked;
+import com.BP.setlistaggregator.internalDTO.SetlistConsistency;
 
 //class to handle requests involving setlist data, stats
 //allow React frontend on port 3000 to make requests to Spring Boot backend on 8080
@@ -44,6 +45,9 @@ public class SetlistController {
         List<SongsRanked> openers = setlistService.getTopOpenerSongs(setlists);
         List<SongsRanked> mostPlayed = setlistService.getMostPlayedSongs(setlists);
         double avgLength = setlistService.getAvgSetlistLength(setlists);
+        SetlistConsistency consistency = setlistService.getSetlistConsistency(setlists);
+        List<SongsRanked> transitions = setlistService.getTopTransitions(setlists);
+        List<SongsRanked> bustouts = setlistService.getBiggestBustouts(setlists);
 
         //build response map of stats
         Map<String, Object> stats = new HashMap<>();
@@ -52,6 +56,9 @@ public class SetlistController {
         stats.put("averageLength", avgLength);
         stats.put("openers", openers);
         stats.put("mostPlayed", mostPlayed);
+        stats.put("consistency", consistency);
+        stats.put("transitions", transitions);
+        stats.put("bustouts", bustouts);
 
         return stats;
     }
