@@ -2,14 +2,10 @@ package com.BP.setlistaggregator.controllers;
 
 import com.BP.setlistaggregator.model.Setlist;
 import com.BP.setlistaggregator.service.SetlistService;
+import com.BP.setlistaggregator.service.SetlistStatsService;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
-import java.util.HashMap;
 import java.util.Map;
-import com.BP.setlistaggregator.internalDTO.SongsRanked;
-import com.BP.setlistaggregator.internalDTO.SetlistConsistency;
-import com.BP.setlistaggregator.internalDTO.ShowLengths;
-import com.BP.setlistaggregator.internalDTO.TouringPace;
 
 //class to handle requests involving setlist data, stats
 //allow React frontend on port 3000 to make requests to Spring Boot backend on 8080
@@ -19,19 +15,21 @@ import com.BP.setlistaggregator.internalDTO.TouringPace;
 @RequestMapping("/api/setlists")
 public class SetlistController {
     private final SetlistService setlistService;
+    private final SetlistStatsService statsService;
 
     //constructor injection of setlist service as dependency
     //Spring automatically passes instance of SetlistService when controller is created
-    public SetlistController(SetlistService setlistService) {
+    public SetlistController(SetlistService setlistService, SetlistStatsService statsService) {
 
         this.setlistService = setlistService;
+        this.statsService = statsService;
     }
 
     //new consolidated GET endpoint to return all processed setlist stats in one object
     //maps to: GET /api/setlists/stats?artist=Radiohead&setlistRange=50
     //have to return a map in order to return the stats together in one response
     //Map groups values under separate keys, with keys being labels like "encores", "rarest"
-    //and values being List<SongsRanked> or double
+    //and values being a summary object or List<SongsRanked>
     //Spring automatically serializes the map into JSON to return to frontend
     @GetMapping("/stats")
     public Map<String, Object> getCombinedStats(@RequestParam String artist, @RequestParam(defaultValue = "50") String setlistRange) {
@@ -41,36 +39,7 @@ public class SetlistController {
         //load the artist's setlists once (from DB, fetching from setlist.fm if needed), then compute every stat from that list
         List<Setlist> setlists = setlistService.getArtistSetlists(artist.trim(), maxSetlists);
 
-        //get each stat into local variables using service methods
-        List<SongsRanked> encores = setlistService.getTopEncoreSongs(setlists);
-        List<SongsRanked> rarest = setlistService.getRarestSongs(setlists);
-        List<SongsRanked> openers = setlistService.getTopOpenerSongs(setlists);
-        List<SongsRanked> mostPlayed = setlistService.getMostPlayedSongs(setlists);
-        double avgLength = setlistService.getAvgSetlistLength(setlists);
-        SetlistConsistency consistency = setlistService.getSetlistConsistency(setlists);
-        List<SongsRanked> transitions = setlistService.getTopTransitions(setlists);
-        List<SongsRanked> bustouts = setlistService.getBiggestBustouts(setlists);
-        ShowLengths showLengths = setlistService.getShowLengths(setlists);
-        TouringPace touringPace = setlistService.getTouringPace(setlists);
-        List<SongsRanked> rotation = setlistService.getRotationSongs(setlists);
-        List<SongsRanked> newSongs = setlistService.getNewSongs(setlists);
-
-        //build response map of stats
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("encores", encores);
-        stats.put("rarest", rarest);
-        stats.put("averageLength", avgLength);
-        stats.put("openers", openers);
-        stats.put("mostPlayed", mostPlayed);
-        stats.put("consistency", consistency);
-        stats.put("transitions", transitions);
-        stats.put("bustouts", bustouts);
-        stats.put("showLengths", showLengths);
-        stats.put("touringPace", touringPace);
-        stats.put("rotation", rotation);
-        stats.put("newSongs", newSongs);
-
-        return stats;
+        return statsService.calculateAllStats(setlists);
     }
 
     //helper method to convert user input to maxSetlists int value

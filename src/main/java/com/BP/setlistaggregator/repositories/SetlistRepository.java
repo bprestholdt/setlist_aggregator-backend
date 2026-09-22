@@ -6,7 +6,9 @@ import com.BP.setlistaggregator.model.Artist;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 import java.util.List;
@@ -29,4 +31,17 @@ public interface SetlistRepository extends JpaRepository<Setlist, Long> {
     //dates of an artist's setlists saved before setlist.fm ids were stored, for matching those older rows
     @Query("select s.date from Setlist s where s.artist = :artist and s.setlistfmId is null")
     Set<LocalDate> findDatesWithoutSetlistfmId(@Param("artist") Artist artist);
+
+    //bulk delete of an artist's cached songs, used when their cached data is outdated and needs a fresh fetch
+    //songs first, since they reference their setlist
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("delete from Song s where s.setlist in (select x from Setlist x where x.artist = :artist)")
+    int deleteSongsByArtist(@Param("artist") Artist artist);
+
+    //bulk delete of an artist's cached setlists (run after deleteSongsByArtist)
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("delete from Setlist x where x.artist = :artist")
+    int deleteSetlistsByArtist(@Param("artist") Artist artist);
 }

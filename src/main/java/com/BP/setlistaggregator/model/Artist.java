@@ -30,6 +30,14 @@ public class Artist {
     @Column(name = "last_checked_date")
     private LocalDate lastCheckedDate;
 
+    //bump this when we start saving new setlist details, so older cached setlists get re-fetched with them
+    //version 2 = tapes, covers, encore sections, venue/city/country, and tour are saved
+    public static final int CURRENT_DATA_VERSION = 2;
+
+    //which version of the saved setlist details this artist's cached setlists have
+    //new artists start at the current version; artists saved before this column existed load as null
+    @Column(name = "data_version")
+    private Integer dataVersion = CURRENT_DATA_VERSION;
 
     //one artist can have many setlists
     @OneToMany(mappedBy = "artist", cascade = CascadeType.ALL)
@@ -89,6 +97,19 @@ public class Artist {
 
     public void setLastFetchedDate(LocalDate lastFetchedDate) {
         this.lastFetchedDate = lastFetchedDate;
+    }
+
+    //true if this artist's cached setlists are missing details newer versions of the app save
+    public boolean hasOutdatedData() {
+        return dataVersion == null || dataVersion < CURRENT_DATA_VERSION;
+    }
+
+    public Integer getDataVersion() {
+        return dataVersion;
+    }
+
+    public void setDataVersion(Integer dataVersion) {
+        this.dataVersion = dataVersion;
     }
 
     public LocalDate getLastCheckedDate() {

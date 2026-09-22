@@ -18,6 +18,21 @@ public class SetSection {
         Every song entry becomes a Song dto object
      */
     private List<Song> song;
+    //encore number (1 = first encore, 2 = second...) if this section is an encore, otherwise missing
+    private Integer encore;
+
+    //true if setlist.fm marks this section as an encore
+    public boolean isEncore() {
+        return encore != null && encore > 0;
+    }
+
+    public Integer getEncore() {
+        return encore;
+    }
+
+    public void setEncore(Integer encore) {
+        this.encore = encore;
+    }
 
     public String getName() {
         return name;

@@ -17,9 +17,14 @@ public class Setlist {
 
     //variables to hold info about specific setlist
     private LocalDate date;
+    //venue name, e.g. "Soldier Field"
     private String venue;
+    //display label: "Chicago, IL" for US shows, "Paris, France" elsewhere
     private String city;
+    //country name, e.g. "United States"
     private String country;
+    //tour name if the show was part of a named tour
+    private String tour;
 
     //Many setlists can be assigned to one artist
     @ManyToOne
@@ -85,6 +90,14 @@ public class Setlist {
 
     public void setCountry(String country) {
         this.country = country;
+    }
+
+    public String getTour() {
+        return tour;
+    }
+
+    public void setTour(String tour) {
+        this.tour = tour;
     }
 
     public Artist getArtist() {

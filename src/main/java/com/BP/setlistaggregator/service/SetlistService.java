@@ -2,17 +2,10 @@ package com.BP.setlistaggregator.service;
 
 import com.BP.setlistaggregator.model.Setlist;
 import com.BP.setlistaggregator.model.Artist;
-//only importing model class, must fully qualify dto Song when used
-import com.BP.setlistaggregator.model.Song;
 
 import com.BP.setlistaggregator.externalDTO.SetSection;
 import com.BP.setlistaggregator.externalDTO.ApiSetlist;
 import com.BP.setlistaggregator.externalDTO.SetlistResponseWrapper;
-import com.BP.setlistaggregator.internalDTO.SongsRanked;
-import com.BP.setlistaggregator.internalDTO.SetlistConsistency;
-import com.BP.setlistaggregator.internalDTO.ShowLengths;
-import com.BP.setlistaggregator.internalDTO.TouringPace;
-import java.time.temporal.ChronoUnit;
 
 
 import java.time.LocalDate;
@@ -30,9 +23,7 @@ import java.util.*;
 Current functions/process:
 Checks if artist searched by user already has setlists in db, fetches if not
 Calls ArtistService and SetlistFMFetchService to handle API and DB coordination
-Calculates statistics to present to user, currently includes methods to return:
--Top Encore Songs
--Rarest songs
+Stats are calculated separately in SetlistStatsService from the setlists this class returns
 Controls data flow between the app's controllers and repositories
 */
 //Declare as Service so spring recognizes as service bean, allowing it to be automatically created and injected into other classes like controllers
@@ -54,20 +45,6 @@ public class SetlistService {
     //configure how often to query API for new concerts since we last checked
     private static final int REFRESH_THRESHOLD_DAYS = 7;
 
-    //a song has to miss at least this many shows in a row before its return counts as a bust-out
-    private static final int MIN_BUSTOUT_GAP = 3;
-
-    //share of shows a song must appear in to count as part of the artist's core set
-    private static final double CORE_SONG_SHARE = 0.9;
-
-    //songs played at between 20% and 60% of shows are rotating in and out of the set
-    private static final double ROTATION_MIN_SHARE = 0.2;
-    private static final double ROTATION_MAX_SHARE = 0.6;
-    //rotation and new-song stats need enough shows to mean anything
-    private static final int MIN_SHOWS_FOR_PATTERNS = 5;
-    //"new in the set" = first played within the most recent quarter of shows in the range
-    private static final double RECENT_SHARE = 0.25;
-
     //date format used by setlist.fm for eventDate
     private static final DateTimeFormatter SETLISTFM_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
 
@@ -83,6 +60,12 @@ public class SetlistService {
 
         //turn artist name into Artist object thats db entity (keeping track of if we have all their setlists)
         Artist artistObj = artistService.findOrCreateArtist(artist);
+
+        //setlists cached by an older version of the app are missing details (tapes, covers, encores, places, tours)
+        //clear them once so they're re-fetched with everything
+        if (artistObj.hasOutdatedData()) {
+            artistObj = clearOutdatedSetlists(artistObj);
+        }
 
         log.debug("fullyFetched for " + artistObj.getName() + ": " + artistObj.isFullyFetched());
 
@@ -117,6 +100,20 @@ public class SetlistService {
         //return db stats if it already satisfies request
         return existingSetlists;
     }
+    //delete an artist's outdated cached setlists and reset their fetch tracking so the normal flow re-fetches them
+    //returns the saved artist (the bulk delete clears Hibernate's cache, so we keep using the freshly saved copy)
+    private Artist clearOutdatedSetlists(Artist artist) {
+        int songsDeleted = setlistRepository.deleteSongsByArtist(artist);
+        int setlistsDeleted = setlistRepository.deleteSetlistsByArtist(artist);
+        log.info("Cleared " + setlistsDeleted + " outdated setlists (" + songsDeleted + " songs) for " + artist.getName() + " to re-fetch with new details");
+
+        artist.setFullyFetched(false);
+        artist.setLastFetchedDate(null);
+        artist.setLastCheckedDate(null);
+        artist.setDataVersion(Artist.CURRENT_DATA_VERSION);
+        return artistService.saveArtist(artist);
+    }
+
     //helper method to determine if we should fetch from the API
     private boolean shouldFetchFromAPI(List<Setlist> existingSetlists, int maxSetlists, Artist artist) {
 
@@ -509,504 +506,6 @@ public class SetlistService {
                 }
             }
         }
-    }
-
-    //method to calculate an artists top 5 encore songs (final song)
-    public List<SongsRanked> getTopEncoreSongs(List<Setlist> setlists) {
-
-        //map to track amount of times each encore song appears
-        Map<String, Integer> encoreCounts = new HashMap<>();
-
-        //iterate each setlist retrieved
-        for (Setlist setlist : setlists) {
-            //get list of songs in that setlist
-            List<Song> songs = extractSongs(setlist);
-
-            //skip empty setlists
-            if (songs.isEmpty()) {
-                continue;
-            }
-            //call helper method to find song at encore position
-            Song encore = findEncore(songs);
-            //count encore song if found
-            if (encore != null) {
-                String title = encore.getTitle();
-                //dont add encore song if blank title
-                if (title != null && !title.isBlank()) {
-                    int count = encoreCounts.getOrDefault(title, 0);
-                    encoreCounts.put(title, count + 1);
-                }
-                else {
-                    log.debug("Encore had no valid title: " + encore);
-                }
-            }
-            else {
-                log.debug("No encore song found in setlist with " + songs.size() + " songs");
-            }
-        }
-        //log full stats before sorting songs
-        log.debug("Total unique encore songs counted: " + encoreCounts.size());
-
-        //call helper method to get 5 most common encore songs sorted
-        List<SongsRanked> topEncores = getTopRankedSongs(encoreCounts, 5, false);
-
-        //log final output
-        log.debug("Top 5 encore songs:");
-        for (SongsRanked song : topEncores) {
-            log.debug(" - " + song.getTitle() + " (played " + song.getCount() + " times)");
-        }
-        return topEncores;
-    }
-    //helper method for encores containing logic to find highest position song
-    //find song with highest position in setlist (will be last song/encore)
-    private Song findEncore(List<Song> songs) {
-        //keep track of highest position
-        Song encore = null;
-        int maxPosition = -1;
-
-        //loop through all songs to find one with highest position
-        for (Song song : songs) {
-            if (song.getPosition() > maxPosition) {
-                encore = song;
-                maxPosition = song.getPosition();
-            }
-        }
-        return encore;
-    }
-
-    //method to calculate top openers- essentially inverse of getTopEncoreSongs
-    public List<SongsRanked> getTopOpenerSongs(List<Setlist> setlists) {
-        //map to hold song title -> opener count
-        Map<String, Integer> openerCounts = new HashMap<>();
-
-        //loop through each setlist
-        for (Setlist setlist : setlists) {
-            List<Song> songs = extractSongs(setlist);
-
-            //skip empty setlists
-            if (songs.isEmpty()) {
-                continue;
-            }
-
-            //loop through all songs in the setlist
-            for (Song song : songs) {
-                //check if this is the first song
-                if (song.getPosition() == 1) {
-                    String title = song.getTitle();
-                    //skip blank/null titles
-                    if (title != null && !title.isBlank()) {
-                        int count = openerCounts.getOrDefault(title, 0);
-                        openerCounts.put(title, count + 1);
-                    }
-                    break; //stop after first song found
-                }
-            }
-        }
-
-        //return top 5 most common openers, sorted descending
-        return getTopRankedSongs(openerCounts, 5, false);
-    }
-
-    //method to return 5 rarest songs(least played) for selected artist
-    public List<SongsRanked> getRarestSongs(List<Setlist> setlists) {
-        //map to count appearances of each song
-        Map<String, Integer> songCounts = new HashMap<>();
-
-        //loop thru each setlist of artist
-        for (Setlist setlist : setlists) {
-            //get list of songs from setlist
-            List<Song> songs = extractSongs(setlist);
-
-            //skip empty setlists
-            if (songs.isEmpty()) {
-                continue;
-            }
-            //loop thru each song to count its appearances
-            //log to verify is invalid songs were issue stopping calcs from returning
-            int skipped = 0;
-            for (Song song : songs) {
-                String title = song.getTitle();
-                //bug fix- skip song if null or blank
-                if (title == null || title.isBlank()) {
-                    log.debug("Skipping song with invalid title in rarest calculation");
-                    skipped++;
-                    continue;
-                }
-                int count = songCounts.getOrDefault(title, 0);
-                songCounts.put(title, count + 1);
-            }
-            if (skipped > 1) {
-                log.debug("Skipped " + skipped + " songs due to blank or null titles");
-            }
-        }
-
-        //log songCounts before we sort them to make sure counting function correct
-        log.debug("Total unique songs counted: " + songCounts.size());
-
-        //call helper method to sort descending (boolean false) and return top 5 rarest
-        List<SongsRanked> rarest = getTopRankedSongs(songCounts, 5, true);
-
-        //log final output
-        log.debug("Top 5 rarest songs:");
-        for (SongsRanked song : rarest) {
-            log.debug(" → " + song.getTitle() + " (played " + song.getCount() + " times)");
-        }
-        return rarest;
-    }
-
-    //method to calculate most played songs from given range in descending order
-    public List<SongsRanked> getMostPlayedSongs(List<Setlist> setlists) {
-
-        //map to count song appearances
-        Map<String, Integer> songCounts = new HashMap<>();
-
-        //loop thru each setlist
-        for (Setlist setlist : setlists) {
-            //get songs from each setlist
-            List<Song> songs = extractSongs(setlist);
-
-            //skip empty setlists
-            if (songs.isEmpty()) {
-                continue;
-            }
-
-            int skipped = 0;
-            //loop thru each song to count its appearances in the setlists
-            for (Song song : songs) {
-                String title = song.getTitle();
-
-                //skip song if title is null or blank
-                if (title == null || title.isBlank()) {
-                    log.debug("Skipping song with invalid title in most played calculation");
-                    skipped++;
-                    continue;
-                }
-                int playCount = songCounts.getOrDefault(title, 0);
-                songCounts.put(title, playCount + 1);
-            }
-            if (skipped > 1) {
-                log.debug("Skipped " + skipped + " songs due to blank or null titles");
-            }
-        }
-        //log songCounts before we sort them
-        log.debug("Total unique songs counted: " + songCounts.size());
-
-        //call helper method to sort songs in descending order to return most played
-        List<SongsRanked> mostPlayed = getTopRankedSongs(songCounts, 5, false);
-
-        //log final output
-        log.debug("Top 5 most played songs:");
-        for (SongsRanked song : mostPlayed) {
-            log.debug(" → " + song.getTitle() + " (played " + song.getCount() + " times)");
-        }
-        return mostPlayed;
-    }
-
-    //method to calculate thr average # of songs per setlist in given range
-    public double getAvgSetlistLength(List<Setlist> setlists) {
-
-        //track total song count
-        int totalSongs = 0;
-        //track total setlists with valid songs (not empty)
-        int setsWithSongs = 0;
-
-        //loop thru each setlist
-        for (Setlist setlist : setlists) {
-            //get song list
-            List<Song> songs = extractSongs(setlist);
-
-            //skip empty or null song lists
-            if (songs.isEmpty()) {
-                continue;
-            }
-            //increment total songs by # in setlist
-            totalSongs += songs.size();
-            //increment valid setlist ctr
-            setsWithSongs++;
-        }
-        //avoid dividing by 0
-        if (setsWithSongs == 0) {
-            return 0.0;
-        }
-        //calculate average and return as dbl
-        double avgLength = (double) totalSongs / setsWithSongs;
-        //log results to console
-        log.debug("Average setlist length: " + avgLength);
-        return avgLength;
-    }
-
-    //method to measure how similar the artist's shows are to each other
-    public SetlistConsistency getSetlistConsistency(List<Setlist> setlists) {
-        //distinct song titles for each show, oldest show first
-        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
-        if (shows.isEmpty()) {
-            return null;
-        }
-
-        //count how many shows each song appeared in
-        Map<String, Integer> showsPerSong = new HashMap<>();
-        for (Set<String> show : shows) {
-            for (String title : show) {
-                showsPerSong.merge(title, 1, Integer::sum);
-            }
-        }
-
-        //average share of each show's songs that were also played at the show before it
-        Double repeatRate = null;
-        if (shows.size() > 1) {
-            double totalShare = 0;
-            for (int i = 1; i < shows.size(); i++) {
-                Set<String> current = shows.get(i);
-                Set<String> previous = shows.get(i - 1);
-                int repeated = 0;
-                for (String title : current) {
-                    if (previous.contains(title)) {
-                        repeated++;
-                    }
-                }
-                totalShare += (double) repeated / current.size();
-            }
-            repeatRate = 100.0 * totalShare / (shows.size() - 1);
-        }
-
-        //core songs appear at 90%+ of shows, one-offs at exactly one
-        int coreThreshold = (int) Math.ceil(shows.size() * CORE_SONG_SHARE);
-        int coreSongs = 0;
-        int oneOffs = 0;
-        for (int count : showsPerSong.values()) {
-            if (count >= coreThreshold) {
-                coreSongs++;
-            }
-            if (count == 1) {
-                oneOffs++;
-            }
-        }
-        return new SetlistConsistency(repeatRate, coreSongs, showsPerSong.size(), oneOffs);
-    }
-
-    //method to find the song-to-song transitions the artist plays most often (song A immediately followed by song B)
-    public List<SongsRanked> getTopTransitions(List<Setlist> setlists) {
-        Map<String, Integer> pairCounts = new HashMap<>();
-
-        for (Setlist setlist : setlists) {
-            //put songs in the order they were played
-            List<Song> songs = extractSongs(setlist);
-            songs.sort(Comparator.comparingInt(Song::getPosition));
-
-            for (int i = 1; i < songs.size(); i++) {
-                String from = songs.get(i - 1).getTitle();
-                String to = songs.get(i).getTitle();
-                //skip blank titles and a song following itself
-                if (!isValidTitle(from) || !isValidTitle(to) || from.equals(to)) {
-                    continue;
-                }
-                pairCounts.merge(from + " → " + to, 1, Integer::sum);
-            }
-        }
-        //a pair heard only once isn't a pattern
-        pairCounts.values().removeIf(count -> count < 2);
-
-        return getTopRankedSongs(pairCounts, 5, false);
-    }
-
-    //method to find songs that came back after the longest absence (most shows missed in a row) within the range
-    //count in each result = number of shows the song sat out before returning
-    public List<SongsRanked> getBiggestBustouts(List<Setlist> setlists) {
-        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
-
-        //index of the last show each song was played at, and the longest gap seen for each song
-        Map<String, Integer> lastShowIndex = new HashMap<>();
-        Map<String, Integer> longestGap = new HashMap<>();
-
-        for (int i = 0; i < shows.size(); i++) {
-            for (String title : shows.get(i)) {
-                Integer lastIndex = lastShowIndex.get(title);
-                if (lastIndex != null) {
-                    int showsMissed = i - lastIndex - 1;
-                    if (showsMissed >= MIN_BUSTOUT_GAP) {
-                        longestGap.merge(title, showsMissed, Math::max);
-                    }
-                }
-                lastShowIndex.put(title, i);
-            }
-        }
-        return getTopRankedSongs(longestGap, 5, false);
-    }
-
-    //method to find the longest and shortest show (by number of songs) in the range
-    //ties go to the most recent show
-    public ShowLengths getShowLengths(List<Setlist> setlists) {
-        Setlist longest = null;
-        Setlist shortest = null;
-        int longestCount = 0;
-        int shortestCount = 0;
-
-        //setlists are newest first, so strict comparisons keep the most recent show on ties
-        for (Setlist setlist : setlists) {
-            int count = extractSongs(setlist).size();
-            if (count == 0 || setlist.getDate() == null) {
-                continue;
-            }
-            if (longest == null || count > longestCount) {
-                longest = setlist;
-                longestCount = count;
-            }
-            if (shortest == null || count < shortestCount) {
-                shortest = setlist;
-                shortestCount = count;
-            }
-        }
-        if (longest == null) {
-            return null;
-        }
-        return new ShowLengths(longestCount, longest.getDate().toString(), shortestCount, shortest.getDate().toString());
-    }
-
-    //method to measure how often the artist plays shows: date span and average days between shows
-    public TouringPace getTouringPace(List<Setlist> setlists) {
-        LocalDate first = null;
-        LocalDate last = null;
-        int shows = 0;
-        for (Setlist setlist : setlists) {
-            LocalDate date = setlist.getDate();
-            if (date == null || extractSongs(setlist).isEmpty()) {
-                continue;
-            }
-            shows++;
-            if (first == null || date.isBefore(first)) {
-                first = date;
-            }
-            if (last == null || date.isAfter(last)) {
-                last = date;
-            }
-        }
-        if (shows == 0) {
-            return null;
-        }
-        Double daysBetweenShows = null;
-        if (shows > 1) {
-            daysBetweenShows = (double) ChronoUnit.DAYS.between(first, last) / (shows - 1);
-        }
-        return new TouringPace(shows, first.toString(), last.toString(), daysBetweenShows);
-    }
-
-    //method to find songs that rotate in and out of the set (played at 20-60% of shows)
-    //count in each result = % of shows the song was played at
-    public List<SongsRanked> getRotationSongs(List<Setlist> setlists) {
-        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
-        if (shows.size() < MIN_SHOWS_FOR_PATTERNS) {
-            return Collections.emptyList();
-        }
-        Map<String, Integer> showsPerSong = new HashMap<>();
-        for (Set<String> show : shows) {
-            for (String title : show) {
-                showsPerSong.merge(title, 1, Integer::sum);
-            }
-        }
-        Map<String, Integer> rotationPercents = new HashMap<>();
-        for (Map.Entry<String, Integer> entry : showsPerSong.entrySet()) {
-            double share = (double) entry.getValue() / shows.size();
-            if (share >= ROTATION_MIN_SHARE && share <= ROTATION_MAX_SHARE) {
-                rotationPercents.put(entry.getKey(), (int) Math.round(share * 100));
-            }
-        }
-        return getTopRankedSongs(rotationPercents, 5, false);
-    }
-
-    //method to find songs that entered the set recently: first played within the latest quarter of shows in the range
-    //count in each result = number of shows the song has been played at since it first appeared
-    public List<SongsRanked> getNewSongs(List<Setlist> setlists) {
-        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
-        if (shows.size() < MIN_SHOWS_FOR_PATTERNS) {
-            return Collections.emptyList();
-        }
-        //index of the first show in the "recent" window
-        int recentStart = shows.size() - (int) Math.ceil(shows.size() * RECENT_SHARE);
-
-        Set<String> playedBefore = new HashSet<>();
-        for (int i = 0; i < recentStart; i++) {
-            playedBefore.addAll(shows.get(i));
-        }
-        Map<String, Integer> newSongPlays = new HashMap<>();
-        for (int i = recentStart; i < shows.size(); i++) {
-            for (String title : shows.get(i)) {
-                if (!playedBefore.contains(title)) {
-                    newSongPlays.merge(title, 1, Integer::sum);
-                }
-            }
-        }
-        return getTopRankedSongs(newSongPlays, 5, false);
-    }
-
-    //helper to get each show's distinct song titles, oldest show first
-    private List<Set<String>> getShowSongTitlesOldestFirst(List<Setlist> setlists) {
-        List<Set<String>> shows = new ArrayList<>();
-        for (Setlist setlist : setlists) {
-            Set<String> titles = new HashSet<>();
-            for (Song song : extractSongs(setlist)) {
-                if (isValidTitle(song.getTitle())) {
-                    titles.add(song.getTitle());
-                }
-            }
-            if (!titles.isEmpty()) {
-                shows.add(titles);
-            }
-        }
-        //setlists come newest first, so reverse to walk through shows in the order they happened
-        Collections.reverse(shows);
-        return shows;
-    }
-
-    //helper to skip songs with missing titles
-    private boolean isValidTitle(String title) {
-        return title != null && !title.isBlank();
-    }
-
-    //helper method to return top N ranked songs based on play counts
-    //ascending = true, lowest values first, used with getRarestSongs
-    //descending = false, highest values first, used with getTopEncoreSongs
-    private List<SongsRanked> getTopRankedSongs(Map<String, Integer> map, int maxResults, boolean ascending) {
-        //convert map entries to list for sorting
-        List<Map.Entry<String, Integer>> entries = new ArrayList<>(map.entrySet());
-
-        //replaced manual selection sort with built sort for performance
-        entries.sort((e1, e2) -> ascending
-                ? Integer.compare(e1.getValue(), e2.getValue())
-                : Integer.compare(e2.getValue(), e1.getValue()));
-
-        entries = entries.subList(0, Math.min(maxResults, entries.size()));
-
-        //log sorting direction
-        log.debug("Sorting top " + maxResults + " keys by " + (ascending ? "lowest" : "highest") + " values");
-
-        //convert to ranked DTOs of songs instead of just titles so we can return stats
-        List <SongsRanked> topSongs = new ArrayList<>();
-
-        for (int i = 0; i < entries.size(); i++) {
-            Map.Entry<String, Integer> entry = entries.get(i);
-            //add 1 to i so first song is ranked 1 and not 0
-            //create new object of DTO and add it to list
-            topSongs.add(new SongsRanked(i + 1, entry.getKey(), entry.getValue()));
-        }
-        return topSongs;
-    }
-
-    //helper method to extract all songs from Setlist object
-    //Goes into sets, set, song structure from Setlist.fm api and flattens it into a list
-    private List<Song> extractSongs(Setlist setlist) {
-        //initialize empty list to hold all songs
-        List<Song> songs = new ArrayList<>();
-
-        //check that sets obj exists and has list of set sections
-        if (setlist.getSongs() != null) {
-            //loop thru each set section
-            songs.addAll(setlist.getSongs());
-        }
-        else {
-            log.debug("Setlist on " + setlist.getDate() + " has null song list");
-        }
-        //return list of all songs for this setlist
-        return songs;
     }
 
     //what's already saved for the setlists on one API page

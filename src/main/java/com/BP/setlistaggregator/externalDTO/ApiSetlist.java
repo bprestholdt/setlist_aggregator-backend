@@ -21,6 +21,63 @@ public class ApiSetlist {
       }
      */
     private Sets sets;
+    //where the show was played: { "name": "Soldier Field", "city": { "name": "Chicago", "stateCode": "IL", "country": { "code": "US", "name": "United States" } } }
+    private Venue venue;
+    //tour the show was part of, if any: { "name": "Mathematics Tour" }
+    private Tour tour;
+
+    //nested API objects only used for mapping, kept inside this class since nothing else needs them
+    public static class Venue {
+        private String name;
+        private City city;
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public City getCity() { return city; }
+        public void setCity(City city) { this.city = city; }
+    }
+
+    public static class City {
+        private String name;
+        private String stateCode;
+        private Country country;
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getStateCode() { return stateCode; }
+        public void setStateCode(String stateCode) { this.stateCode = stateCode; }
+        public Country getCountry() { return country; }
+        public void setCountry(Country country) { this.country = country; }
+    }
+
+    public static class Country {
+        private String code;
+        private String name;
+        public String getCode() { return code; }
+        public void setCode(String code) { this.code = code; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+    }
+
+    public static class Tour {
+        private String name;
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+    }
+
+    public Venue getVenue() {
+        return venue;
+    }
+
+    public void setVenue(Venue venue) {
+        this.venue = venue;
+    }
+
+    public Tour getTour() {
+        return tour;
+    }
+
+    public void setTour(Tour tour) {
+        this.tour = tour;
+    }
 
     //getters and setters
     public String getId() {

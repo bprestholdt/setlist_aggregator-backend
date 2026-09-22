@@ -121,10 +121,23 @@ public class SetlistFMFetchService {
         }
         setlist.setDate(parsedDate);
 
-        //implement later
-        setlist.setVenue("Unknown Venue");
-        setlist.setCity("Unknown City");
-        setlist.setCountry("Unknown Country");
+        //venue, city, country (null if setlist.fm doesn't have them)
+        ApiSetlist.Venue venue = apiSetlist.getVenue();
+        if (venue != null) {
+            setlist.setVenue(blankToNull(venue.getName()));
+            ApiSetlist.City city = venue.getCity();
+            if (city != null) {
+                ApiSetlist.Country country = city.getCountry();
+                String countryName = country != null ? blankToNull(country.getName()) : null;
+                setlist.setCountry(countryName);
+                setlist.setCity(formatCityLabel(city, country));
+            }
+        }
+
+        //tour name, if the show was part of a named tour
+        if (apiSetlist.getTour() != null) {
+            setlist.setTour(blankToNull(apiSetlist.getTour().getName()));
+        }
 
         //global position counter across all songs in all sections
         int positionCtr = 1;
@@ -148,6 +161,15 @@ public class SetlistFMFetchService {
                         //set song position!!!
                         dbSong.setPosition(positionCtr);
 
+                        //recorded intros/outros are saved but left out of stats
+                        dbSong.setTape(Boolean.TRUE.equals(apiSong.getTape()));
+                        //songs in a section setlist.fm marks as an encore
+                        dbSong.setEncore(section.isEncore());
+                        //original artist if it's a cover
+                        if (apiSong.getCover() != null) {
+                            dbSong.setCoverArtist(blankToNull(apiSong.getCover().getName()));
+                        }
+
                         dbSongs.add(dbSong);
                         positionCtr++;
                     }
@@ -166,6 +188,26 @@ public class SetlistFMFetchService {
         log.debug("Mapped " + dbSongs.size() + " songs for setlist on " + apiSetlist.getEventDate());
 
         return setlist;
+    }
+
+    //"Chicago, IL" for US shows (state is more useful than "United States"), "Paris, France" elsewhere
+    private String formatCityLabel(ApiSetlist.City city, ApiSetlist.Country country) {
+        String cityName = blankToNull(city.getName());
+        if (cityName == null) {
+            return null;
+        }
+        boolean isUS = country != null && "US".equalsIgnoreCase(country.getCode());
+        String stateCode = blankToNull(city.getStateCode());
+        if (isUS && stateCode != null) {
+            return cityName + ", " + stateCode;
+        }
+        String countryName = country != null ? blankToNull(country.getName()) : null;
+        return countryName != null ? cityName + ", " + countryName : cityName;
+    }
+
+    //treat empty strings from the API as missing
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     //future: rate limit tracker,pagination helpers, etc
