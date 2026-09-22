@@ -10,12 +10,12 @@ This is the backend service for the [Setlist Aggregator](https://setlist-aggrega
 - Fetches setlists from Setlist.fm page by page, with throttling and a single retry on rate limits
 - Caches setlists in PostgreSQL; checks for new concerts at most once a week per artist
 - Skips duplicates using Setlist.fm's own setlist IDs, so two shows on the same day are both kept
+- Saves covers, encore sections, venue, city, country, and tour for every show; recorded intros/outros (tapes) are left out of all stats
 - Calculates, for the last 20, last 100, or all shows:
-  - Top 5 most played songs
-  - Top 5 openers
-  - Top 5 encores (last song of the night)
-  - Top 5 rarest songs
-  - Average number of songs per show
+  - Summary: shows and date span, songs per show, longest/shortest show, days between shows, night-to-night repeat rate, different songs, encore and cover rates, countries and cities
+  - The songs: most played (as % of shows), rarest, most played covers, songs in rotation, new songs, biggest bust-outs
+  - How the show runs: openers, main set closers, encore songs, signature transitions, songs usually played early or saved for late
+  - On the road: top cities, countries, and venues, tour-by-tour comparison, and regional specials (songs played in only one country)
 
 ## API
 - `GET /api/setlists/stats?artist=Radiohead&setlistRange=20` – all stats in one response (`setlistRange` is a number or `all`)
