@@ -10,6 +10,9 @@ import com.BP.setlistaggregator.externalDTO.ApiSetlist;
 import com.BP.setlistaggregator.externalDTO.SetlistResponseWrapper;
 import com.BP.setlistaggregator.internalDTO.SongsRanked;
 import com.BP.setlistaggregator.internalDTO.SetlistConsistency;
+import com.BP.setlistaggregator.internalDTO.ShowLengths;
+import com.BP.setlistaggregator.internalDTO.TouringPace;
+import java.time.temporal.ChronoUnit;
 
 
 import java.time.LocalDate;
@@ -56,6 +59,14 @@ public class SetlistService {
 
     //share of shows a song must appear in to count as part of the artist's core set
     private static final double CORE_SONG_SHARE = 0.9;
+
+    //songs played at between 20% and 60% of shows are rotating in and out of the set
+    private static final double ROTATION_MIN_SHARE = 0.2;
+    private static final double ROTATION_MAX_SHARE = 0.6;
+    //rotation and new-song stats need enough shows to mean anything
+    private static final int MIN_SHOWS_FOR_PATTERNS = 5;
+    //"new in the set" = first played within the most recent quarter of shows in the range
+    private static final double RECENT_SHARE = 0.25;
 
     //date format used by setlist.fm for eventDate
     private static final DateTimeFormatter SETLISTFM_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
@@ -820,6 +831,111 @@ public class SetlistService {
             }
         }
         return getTopRankedSongs(longestGap, 5, false);
+    }
+
+    //method to find the longest and shortest show (by number of songs) in the range
+    //ties go to the most recent show
+    public ShowLengths getShowLengths(List<Setlist> setlists) {
+        Setlist longest = null;
+        Setlist shortest = null;
+        int longestCount = 0;
+        int shortestCount = 0;
+
+        //setlists are newest first, so strict comparisons keep the most recent show on ties
+        for (Setlist setlist : setlists) {
+            int count = extractSongs(setlist).size();
+            if (count == 0 || setlist.getDate() == null) {
+                continue;
+            }
+            if (longest == null || count > longestCount) {
+                longest = setlist;
+                longestCount = count;
+            }
+            if (shortest == null || count < shortestCount) {
+                shortest = setlist;
+                shortestCount = count;
+            }
+        }
+        if (longest == null) {
+            return null;
+        }
+        return new ShowLengths(longestCount, longest.getDate().toString(), shortestCount, shortest.getDate().toString());
+    }
+
+    //method to measure how often the artist plays shows: date span and average days between shows
+    public TouringPace getTouringPace(List<Setlist> setlists) {
+        LocalDate first = null;
+        LocalDate last = null;
+        int shows = 0;
+        for (Setlist setlist : setlists) {
+            LocalDate date = setlist.getDate();
+            if (date == null || extractSongs(setlist).isEmpty()) {
+                continue;
+            }
+            shows++;
+            if (first == null || date.isBefore(first)) {
+                first = date;
+            }
+            if (last == null || date.isAfter(last)) {
+                last = date;
+            }
+        }
+        if (shows == 0) {
+            return null;
+        }
+        Double daysBetweenShows = null;
+        if (shows > 1) {
+            daysBetweenShows = (double) ChronoUnit.DAYS.between(first, last) / (shows - 1);
+        }
+        return new TouringPace(shows, first.toString(), last.toString(), daysBetweenShows);
+    }
+
+    //method to find songs that rotate in and out of the set (played at 20-60% of shows)
+    //count in each result = % of shows the song was played at
+    public List<SongsRanked> getRotationSongs(List<Setlist> setlists) {
+        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
+        if (shows.size() < MIN_SHOWS_FOR_PATTERNS) {
+            return Collections.emptyList();
+        }
+        Map<String, Integer> showsPerSong = new HashMap<>();
+        for (Set<String> show : shows) {
+            for (String title : show) {
+                showsPerSong.merge(title, 1, Integer::sum);
+            }
+        }
+        Map<String, Integer> rotationPercents = new HashMap<>();
+        for (Map.Entry<String, Integer> entry : showsPerSong.entrySet()) {
+            double share = (double) entry.getValue() / shows.size();
+            if (share >= ROTATION_MIN_SHARE && share <= ROTATION_MAX_SHARE) {
+                rotationPercents.put(entry.getKey(), (int) Math.round(share * 100));
+            }
+        }
+        return getTopRankedSongs(rotationPercents, 5, false);
+    }
+
+    //method to find songs that entered the set recently: first played within the latest quarter of shows in the range
+    //count in each result = number of shows the song has been played at since it first appeared
+    public List<SongsRanked> getNewSongs(List<Setlist> setlists) {
+        List<Set<String>> shows = getShowSongTitlesOldestFirst(setlists);
+        if (shows.size() < MIN_SHOWS_FOR_PATTERNS) {
+            return Collections.emptyList();
+        }
+        //index of the first show in the "recent" window
+        int recentStart = shows.size() - (int) Math.ceil(shows.size() * RECENT_SHARE);
+
+        Set<String> playedBefore = new HashSet<>();
+        for (int i = 0; i < recentStart; i++) {
+            playedBefore.addAll(shows.get(i));
+        }
+        Map<String, Integer> newSongPlays = new HashMap<>();
+        for (int i = recentStart; i < shows.size(); i++) {
+            for (String title : shows.get(i)) {
+                if (!playedBefore.contains(title)) {
+                    newSongPlays.merge(title, 1, Integer::sum);
+                }
+            }
+        }
+        return getTopRankedSongs(newSongPlays, 5, false);
     }
 
     //helper to get each show's distinct song titles, oldest show first
