@@ -11,6 +11,10 @@ public class Setlist {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    //setlist.fm's own id for this setlist, used to detect duplicates (null for setlists saved before this was added)
+    @Column(name = "setlistfm_id")
+    private String setlistfmId;
+
     //variables to hold info about specific setlist
     private LocalDate date;
     private String venue;
@@ -49,6 +53,14 @@ public class Setlist {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getSetlistfmId() {
+        return setlistfmId;
+    }
+
+    public void setSetlistfmId(String setlistfmId) {
+        this.setlistfmId = setlistfmId;
     }
 
     public String getVenue() {

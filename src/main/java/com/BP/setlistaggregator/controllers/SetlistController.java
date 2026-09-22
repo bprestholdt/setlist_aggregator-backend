@@ -24,17 +24,6 @@ public class SetlistController {
         this.setlistService = setlistService;
     }
 
-    //GET endpoint to fetch setlists from user defined artist
-    //maps to GET /api/setlists?artist=Radiohead
-    //returns list of setlists, each containing songs, artist etc in JSON format
-    @GetMapping
-    public List<Setlist> getArtistSetlists(@RequestParam String artist, @RequestParam(defaultValue = "50") String setlistRange)
-    {
-        //have to use String in parameter to allow for user to select all, so conversion is in case number entered
-        int maxSetlists = parseSetlistRange(setlistRange);
-        //get all setlists from database using service layer method
-        return setlistService.getArtistSetlists(artist, maxSetlists);
-    }
     //new consolidated GET endpoint to return all processed setlist stats in one object
     //maps to: GET /api/setlists/stats?artist=Radiohead&setlistRange=50
     //have to return a map in order to return the stats together in one response
@@ -43,21 +32,18 @@ public class SetlistController {
     //Spring automatically serializes the map into JSON to return to frontend
     @GetMapping("/stats")
     public Map<String, Object> getCombinedStats(@RequestParam String artist, @RequestParam(defaultValue = "50") String setlistRange) {
+        //have to use String in parameter to allow for user to select all, so conversion is in case number entered
         int maxSetlists = parseSetlistRange(setlistRange);
 
-        //get each stat into local variables using service methods
-        List<SongsRanked> encores = setlistService.getTopEncoreSongs(artist, maxSetlists);
-        List<SongsRanked> rarest = setlistService.getRarestSongs(artist, maxSetlists);
-        List<SongsRanked> openers = setlistService.getTopOpenerSongs(artist, maxSetlists);
-        List<SongsRanked> mostPlayed = setlistService.getMostPlayedSongs(artist, maxSetlists);
-        double avgLength = setlistService.getAvgSetlistLength(artist, maxSetlists);
+        //load the artist's setlists once (from DB, fetching from setlist.fm if needed), then compute every stat from that list
+        List<Setlist> setlists = setlistService.getArtistSetlists(artist.trim(), maxSetlists);
 
-        //log each result for debugging
-        System.out.println("encores: " +encores);
-        System.out.println("rarest: " +rarest);
-        System.out.println("openers: " +openers);
-        System.out.println("mostPlayed: " + mostPlayed);
-        System.out.println("averageLength: " + avgLength);
+        //get each stat into local variables using service methods
+        List<SongsRanked> encores = setlistService.getTopEncoreSongs(setlists);
+        List<SongsRanked> rarest = setlistService.getRarestSongs(setlists);
+        List<SongsRanked> openers = setlistService.getTopOpenerSongs(setlists);
+        List<SongsRanked> mostPlayed = setlistService.getMostPlayedSongs(setlists);
+        double avgLength = setlistService.getAvgSetlistLength(setlists);
 
         //build response map of stats
         Map<String, Object> stats = new HashMap<>();

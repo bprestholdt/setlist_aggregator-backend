@@ -2,9 +2,10 @@ package com.BP.setlistaggregator.service;
 
 import com.BP.setlistaggregator.repositories.ArtistRepository;
 import com.BP.setlistaggregator.model.Artist;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import java.util.Optional;
-import java.util.List;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -18,6 +19,8 @@ import org.json.JSONArray;
 //service class solely for handling artist objects
 @Service
 public class ArtistService {
+    private static final Logger log = LoggerFactory.getLogger(ArtistService.class);
+
     private final ArtistRepository artistRepository;
 
     public ArtistService(ArtistRepository artistRepository) {
@@ -27,7 +30,7 @@ public class ArtistService {
     //helper method used in fetchFromSetlistFM method to retrieve existing artist or create new one if not found
     public Artist findOrCreateArtist(String artistName) {
 
-        System.out.println("Looking up or creating artist with name: " + artistName);
+        log.debug("Looking up or creating artist with name: " + artistName);
 
         //try to find in db
         Optional<Artist> optionalArtist = artistRepository.findByNameIgnoreCase(artistName);
@@ -36,7 +39,7 @@ public class ArtistService {
         if (optionalArtist.isPresent()) {
             Artist existingArtist = optionalArtist.get();
             //debug refetching issue
-            System.out.println("Found existing artist: " + existingArtist.getName() + " | fullyFetched: " + existingArtist.isFullyFetched() + " | lastFetchedDate: " + existingArtist.getLastFetchedDate());
+            log.debug("Found existing artist: " + existingArtist.getName() + " | fullyFetched: " + existingArtist.isFullyFetched() + " | lastFetchedDate: " + existingArtist.getLastFetchedDate());
             return existingArtist;
         }
 
@@ -44,21 +47,14 @@ public class ArtistService {
         Artist newArtist = new Artist();
         newArtist.setName(artistName);
         //log creation
-        System.out.println("Created new artist entry for: " + artistName);
+        log.info("Created new artist entry for: " + artistName);
         return artistRepository.save(newArtist);
-    }
-
-    public Optional<Artist> findByName(String name) {
-
-        Optional<Artist> artistNameResult = artistRepository.findByNameIgnoreCase(name);
-        System.out.println("findByName called for: " + name + " | found: " + artistNameResult.isPresent());
-        return artistNameResult;
     }
 
     //helper method to search MusicBrainz for artist MBID using the String we have
     public String resolveMBIDfromArtistNameString(String artistName) {
         try {
-            System.out.println("Resolving MBID for artist: " + artistName);
+            log.debug("Resolving MBID for artist: " + artistName);
 
             //url encode the artist name and form MusicBrainz search query
             String searchURL = "https://musicbrainz.org/ws/2/artist?query=artist:" +
@@ -83,24 +79,15 @@ public class ArtistService {
                 //get the top artist's MBID to use in Setlist fm query
                 return firstArtist.getString("id");
             } else {
-                System.out.println("No results found in MBID for: " + artistName);
+                log.debug("No results found in MBID for: " + artistName);
                 return null;
             }
         } catch (Exception e) {
-            System.err.println("Failed to fetch MBID from MusicBrainz " + e.getMessage());
+            log.warn("Failed to fetch MBID from MusicBrainz " + e.getMessage());
             return null;
         }
     }
 
-    //helper method to look up artist using MusicBrainz ID (mbid)
-    public Optional<Artist> findByMbid(String mbid) {
-        return artistRepository.findByMbid(mbid);
-    }
-    //method to get all artists from db
-    public List<Artist> getAllArtists() {
-        //delegate to repository to fetch all rows from artist table
-        return artistRepository.findAll();
-    }
     // new method to persist artist updates like setting fullyFetched=true
     public Artist saveArtist(Artist artist) {
 

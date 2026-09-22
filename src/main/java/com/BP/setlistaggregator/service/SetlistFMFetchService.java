@@ -3,6 +3,8 @@ package com.BP.setlistaggregator.service;
 import com.BP.setlistaggregator.externalDTO.*;
 import com.BP.setlistaggregator.model.Artist;
 import com.BP.setlistaggregator.model.Setlist;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -18,6 +20,8 @@ import java.time.Duration;
 //service class that handles interaction with the Setlist.fm API
 @Service
 public class SetlistFMFetchService {
+    private static final Logger log = LoggerFactory.getLogger(SetlistFMFetchService.class);
+
     //talks to Setlist.FM's REST API
     private final WebClient webClient;
 
@@ -36,6 +40,11 @@ public class SetlistFMFetchService {
     //NEW- fetch by mbid instead of string to ensure accuracy- test edge cases further
     //helper method to send GET request to Setlist.fm API for a specific artist page
     public SetlistResponseWrapper fetchSetlistPage(String mbid, int page, int size) {
+        //allow one retry if we hit the rate limit
+        return fetchSetlistPage(mbid, page, size, 1);
+    }
+
+    private SetlistResponseWrapper fetchSetlistPage(String mbid, int page, int size, int retriesLeft) {
         long start = System.currentTimeMillis();
         try {
             //send request to Setlist.fm API for one page of setlists
@@ -58,22 +67,26 @@ public class SetlistFMFetchService {
                     //block request until full data received
                     .block();
 
-            System.out.println("Page " + page + " fetched in " + (System.currentTimeMillis() - start) + " ms");
+            log.debug("Page " + page + " fetched in " + (System.currentTimeMillis() - start) + " ms");
 
             return response;
         }
         catch (WebClientResponseException.NotFound e) {
             //404 error — reached past last page
-            System.out.println("No setlists found for artist MBID " + mbid);
+            log.debug("No setlists found for artist MBID " + mbid);
             return null;
         } catch (WebClientResponseException.TooManyRequests e) {
             //429 rate limit hit- try sleeping, retry once
-            System.out.println("Rate limit hit! Backing off 30 sec!!!!!");
+            if (retriesLeft <= 0) {
+                log.warn("Rate limit hit again after retrying. Giving up on page " + page);
+                return null;
+            }
+            log.warn("Rate limit hit! Backing off 30 sec!!!!!");
             try {
                 //sleep 30 sec
                 Thread.sleep(30_000);
                 //retry once after sleep
-                return fetchSetlistPage(mbid, page, size);
+                return fetchSetlistPage(mbid, page, size, retriesLeft - 1);
             }
             catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
@@ -81,7 +94,7 @@ public class SetlistFMFetchService {
             return null;
         }
         catch (Exception e) {
-            System.out.println("Error fetching setlists by MBID: " + e.getMessage());
+            log.warn("Error fetching setlists by MBID: " + e.getMessage());
             return null;
         }
     }
@@ -94,13 +107,15 @@ public class SetlistFMFetchService {
 
         //set foreign key reference to artist
         setlist.setArtist(artist);
+        //keep setlist.fm's id so duplicates can be matched exactly
+        setlist.setSetlistfmId(apiSetlist.getId());
 
         //parse event date string from API to localdate
         LocalDate parsedDate;
         try {
             parsedDate = LocalDate.parse(apiSetlist.getEventDate(), DateTimeFormatter.ofPattern("dd-MM-yyyy"));
         } catch (Exception e) {
-            System.out.println("Date parsing failed for: " + apiSetlist.getEventDate());
+            log.warn("Date parsing failed for: " + apiSetlist.getEventDate());
             //fallback or skip
             parsedDate = LocalDate.now();
         }
@@ -142,13 +157,13 @@ public class SetlistFMFetchService {
 
         //new method to check if setlist is empty and avoid saving it to db
         if (dbSongs.isEmpty()) {
-            System.out.println("Skipping empty setlist for artist " + artist.getName() + " on " + apiSetlist.getEventDate());
+            log.debug("Skipping empty setlist for artist " + artist.getName() + " on " + apiSetlist.getEventDate());
             return null;
         }
         //add all songs to the setlist
         setlist.setSongs(dbSongs);
         //log to confirm what data is being saved
-        System.out.println("Mapped " + dbSongs.size() + " songs for setlist on " + apiSetlist.getEventDate());
+        log.debug("Mapped " + dbSongs.size() + " songs for setlist on " + apiSetlist.getEventDate());
 
         return setlist;
     }

@@ -18,9 +18,9 @@ public class CorsConfig {
                                 "http://localhost:3000",
                                 "https://setlist-aggregator-frontend.vercel.app"
                         )
-                        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                        //the API only has GET endpoints and the frontend doesn't send cookies
+                        .allowedMethods("GET", "OPTIONS")
                         .allowedHeaders("*")
-                        .allowCredentials(true)
                         .maxAge(3600);
             }
         };

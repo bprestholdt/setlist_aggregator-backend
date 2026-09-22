@@ -26,6 +26,10 @@ public class Artist {
     @Column(name = "last_fetched_date")
     private LocalDate lastFetchedDate;
 
+    //date we last asked setlist.fm for new concerts (separate from lastFetchedDate, which is the newest concert's date)
+    @Column(name = "last_checked_date")
+    private LocalDate lastCheckedDate;
+
 
     //one artist can have many setlists
     @OneToMany(mappedBy = "artist", cascade = CascadeType.ALL)
@@ -85,5 +89,13 @@ public class Artist {
 
     public void setLastFetchedDate(LocalDate lastFetchedDate) {
         this.lastFetchedDate = lastFetchedDate;
+    }
+
+    public LocalDate getLastCheckedDate() {
+        return lastCheckedDate;
+    }
+
+    public void setLastCheckedDate(LocalDate lastCheckedDate) {
+        this.lastCheckedDate = lastCheckedDate;
     }
 }

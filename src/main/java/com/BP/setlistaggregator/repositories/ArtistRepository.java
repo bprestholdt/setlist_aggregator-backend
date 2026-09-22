@@ -15,9 +15,8 @@ Also gives methods including findAll(), findById, save(entity), others
 */
 public interface ArtistRepository extends JpaRepository<Artist, Long> {
 
-    //method to find an artist given their unique Musicbrainz ID (mbid)
+    //find an artist by name regardless of capitalization
     //optional to handle null returns
-    Optional<Artist> findByMbid(String mbid);
     Optional<Artist> findByNameIgnoreCase(String name);
 
 }
