@@ -1,36 +1,56 @@
 # Setlist Aggregator – Backend (Spring Boot + PostgreSQL)
 
-This is the backend service for the Setlist Aggregator web app. It provides a RESTful API that:
+This is the backend service for the [Setlist Aggregator](https://setlist-aggregator-frontend.vercel.app) web app ([frontend repo](https://github.com/bprestholdt/setlist_aggregator-frontend)). It provides a REST API that:
 - Fetches live setlist data from the Setlist.fm API
 - Stores and updates concert data in a PostgreSQL database
-- Calculates statistics like most common encores, rarest songs, and average setlist length
+- Calculates statistics from an artist's setlists
 
 ## Features
-- Fetch setlists for a given artist (via Setlist.fm)
-- Calculate:
-  - Top 5 encore songs
+- Resolves the searched artist to their MusicBrainz ID so ambiguous names match the right artist
+- Fetches setlists from Setlist.fm page by page, with throttling and a single retry on rate limits
+- Caches setlists in PostgreSQL; checks for new concerts at most once a week per artist
+- Skips duplicates using Setlist.fm's own setlist IDs, so two shows on the same day are both kept
+- Calculates, for the last 20, last 100, or all shows:
+  - Top 5 most played songs
+  - Top 5 openers
+  - Top 5 encores (last song of the night)
   - Top 5 rarest songs
-  - Average number of songs per concert
-- Caches results in a local PostgreSQL database
-- Supports pagination, throttling, and duplicate filtering
+  - Average number of songs per show
+
+## API
+- `GET /api/setlists/stats?artist=Radiohead&setlistRange=20` – all stats in one response (`setlistRange` is a number or `all`)
+- `GET /health` – returns `ok` without touching the database, for uptime checks
 
 ## Technologies
-- Java 17
-- Spring Boot
-- Spring Data JPA
+- Java 17, Spring Boot, Spring Data JPA
 - PostgreSQL
-- Maven
-- WebClient for HTTP requests
+- Maven, Docker
+- WebClient for Setlist.fm requests
 
 ## Setup (Local)
 
 ### 1. Prerequisites
 - Java 17+
 - PostgreSQL
-- Maven
+- Maven (or the included `mvnw` wrapper)
 
-### 2. Environment Variable
-Set your Setlist.fm API key as an environment variable:
+### 2. Environment variables
 ```bash
-export SFM_API_KEY=your-api-key-here
-# Force rebuild
+export SFM_API_KEY=your-setlistfm-api-key
+export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/setlists
+export SPRING_DATASOURCE_USERNAME=postgres
+export SPRING_DATASOURCE_PASSWORD=your-password
+```
+Tables are created or updated automatically on startup.
+
+### 3. Run
+```bash
+./mvnw spring-boot:run
+```
+The API runs on port 8080 (or `$PORT` if set). Set `logging.level.com.BP.setlistaggregator=debug` to see per-page fetch details.
+
+### Docker
+```bash
+docker build -t setlist-backend .
+docker run -p 8080:8080 -e SFM_API_KEY=... -e SPRING_DATASOURCE_URL=... -e SPRING_DATASOURCE_USERNAME=... -e SPRING_DATASOURCE_PASSWORD=... setlist-backend
+```
